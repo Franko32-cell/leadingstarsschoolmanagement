@@ -1,6 +1,6 @@
 [build]
   base    = "frontend/admin-dashboard"
-  command = "rm -rf node_modules dist && npm ci && npm run build"
+  command = "npm install && npm run build"
   publish = "dist"
 
 [build.environment]
