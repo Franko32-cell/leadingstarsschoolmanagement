@@ -8,11 +8,13 @@ import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# ── Security ───────────────────────────────────────────────────
+
 SECRET_KEY = os.getenv("SECRET_KEY", "unsafe-secret-key")
 
-DEBUG = os.getenv("DEBUG", "True") == "True"
+DEBUG = os.getenv("DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", ".onrender.com,.netlify.app,localhost,127.0.0.1").split(",")
 
 
 # ── Installed Apps ─────────────────────────────────────────────
@@ -58,7 +60,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'api.middleware.ActiveUserMiddleware',   # ← ADD THIS
+    'api.middleware.ActiveUserMiddleware',
 ]
 
 
@@ -85,17 +87,22 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+
 # ── School Term ────────────────────────────────────────────────
 
 CURRENT_TERM = "term3"
 CURRENT_YEAR = 2026
 
+
 # ── Database ───────────────────────────────────────────────────
+# Reads DATABASE_URL env variable (set on Render)
+# Falls back to local SQLite for development
 
 DATABASES = {
     'default': dj_database_url.config(
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
         conn_max_age=600,
+        ssl_require=not DEBUG,  # require SSL in production, not in dev
     )
 }
 
@@ -114,7 +121,6 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
 USE_TZ = True
 
@@ -135,7 +141,6 @@ CLOUDINARY_API_KEY    = os.environ.get("CLOUDINARY_API_KEY", "")
 CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET", "")
 
 if CLOUDINARY_CLOUD_NAME:
-
     import cloudinary
 
     cloudinary.config(
@@ -152,11 +157,9 @@ if CLOUDINARY_CLOUD_NAME:
     }
 
     DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
-
     MEDIA_URL = f"https://res.cloudinary.com/{CLOUDINARY_CLOUD_NAME}/image/upload/"
 
 else:
-
     MEDIA_URL  = "/media/"
     MEDIA_ROOT = BASE_DIR / "media"
 
@@ -167,10 +170,36 @@ TERMII_API_KEY   = os.environ.get("TERMII_API_KEY", "")
 TERMII_SENDER_ID = os.environ.get("TERMII_SENDER_ID", "LEADSTARS")
 
 
-# ── Auth & CORS ────────────────────────────────────────────────
+# ── CORS ───────────────────────────────────────────────────────
+# In development (DEBUG=True), allow all origins
+# In production, only allow the Netlify frontend
 
-CORS_ALLOW_ALL_ORIGINS = True
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGINS = [
+        origin.strip()
+        for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+
 CORS_EXPOSE_HEADERS = ["Content-Disposition"]
+
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
+
+
+# ── Auth ───────────────────────────────────────────────────────
 
 AUTH_USER_MODEL = 'accounts.User'
 
@@ -195,11 +224,15 @@ SIMPLE_JWT = {
 
 # ── Security Headers ───────────────────────────────────────────
 
-# Allow Paystack iframe checkout to open
 X_FRAME_OPTIONS = "SAMEORIGIN"
-
-# Prevents browser blocking cross-origin popups (Paystack needs this)
 SECURE_CROSS_ORIGIN_OPENER_POLICY = None
+
+# Enable these in production
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 
 # ── Logging ────────────────────────────────────────────────────
@@ -207,11 +240,27 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = None
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
     'handlers': {
-        'console': {'class': 'logging.StreamHandler'},
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
     },
     'root': {
         'handlers': ['console'],
-        'level': 'DEBUG',
+        'level': 'INFO' if not DEBUG else 'DEBUG',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO' if not DEBUG else 'DEBUG',
+            'propagate': False,
+        },
     },
 }
