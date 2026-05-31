@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const BASE_URL = "https://leadingstarsbackend.onrender.com";
+const BASE_URL = import.meta.env.VITE_API_URL;
 
 const PUBLIC_ENDPOINTS = ["/auth/login/", "/auth/refresh/", "/auth/register/"];
 
