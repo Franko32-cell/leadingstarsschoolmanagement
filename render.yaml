@@ -1,11 +1,29 @@
+cat > /workspaces/school-website-MagementSystem/school-website-MagementSystem/render.yaml << 'EOF'
 services:
   - type: web
     name: school-backend
     env: python
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2
+    preDeployCommand: python manage.py migrate
     envVars:
+      - key: SECRET_KEY
+        sync: false
+      - key: DEBUG
+        value: "False"
       - key: DATABASE_URL
         sync: false
-    preDeployCommand: python manage.py migrate && python manage.py loaddata data.json
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: TERMII_API_KEY
+        sync: false
+      - key: TERMII_SENDER_ID
+        value: "LEADSTARS"
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+EOF
