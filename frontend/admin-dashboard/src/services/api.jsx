@@ -1,12 +1,12 @@
 import axios from "axios";
 
-const BASE_URL = "https://school-backend-bzk3.onrender.com/api";
+const BASE_URL = "https://leadingstarsbackend.onrender.com";
 
 const PUBLIC_ENDPOINTS = ["/auth/login/", "/auth/refresh/", "/auth/register/"];
 
 // ── Axios instance ─────────────────────────────────────────────
 const API = axios.create({
-  baseURL: BASE_URL,   // ← removed trailing slash
+  baseURL: BASE_URL,   
   timeout: 30000,
 });
 

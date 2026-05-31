@@ -1,3 +1,6 @@
+from django.conf import settings
+from django.utils import timezone
+
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
@@ -112,12 +115,33 @@ class ResultViewSet(ModelViewSet):
                 continue
 
             try:
+                year = int(record.get("year") or getattr(settings, "CURRENT_YEAR", timezone.now().year))
+            except (TypeError, ValueError):
+                errors.append({"record": record, "error": "year must be a valid integer"})
+                continue
+
+            try:
+                existing = Result.objects.filter(
+                    student_id=record["student"],
+                    subject_id=record["subject"],
+                    term=record["term"],
+                    year=year,
+                ).first()
+
+                if "school_class" in record:
+                    school_class_id = record.get("school_class")
+                elif existing is not None:
+                    school_class_id = existing.school_class_id
+                else:
+                    school_class_id = None
+
                 instance, _ = Result.objects.update_or_create(
                     student_id=record["student"],
                     subject_id=record["subject"],
                     term=record["term"],
+                    year=year,
                     defaults={
-                        "school_class_id": record.get("school_class"),
+                        "school_class_id": school_class_id,
                         "reopen": float(record.get("reopen") or 0),
                         "ca":     float(record.get("ca")     or 0),
                         "exams":  float(record.get("exams")  or 0),
@@ -128,7 +152,7 @@ class ResultViewSet(ModelViewSet):
                 errors.append({"record": record, "error": str(exc)})
 
         combos = {
-            (r["subject"], r["term"], r.get("school_class"))
+            (r["subject"], r["term"], r.get("school_class"), int(r.get("year") or getattr(settings, "CURRENT_YEAR", timezone.now().year)))
             for r in records
             if "subject" in r and "term" in r
         }
@@ -186,8 +210,8 @@ class ResultViewSet(ModelViewSet):
                 "ca":               r.ca,
                 "exams":            r.exams,
                 "score":            r.score,
-                "grade":            r.grade,
-                "remark":           r.remark,
+                "grade":            None,
+                "remark":           None,
                 "subject_position": r.subject_position,
             })
 

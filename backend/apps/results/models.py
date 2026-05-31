@@ -1,5 +1,7 @@
+from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
+from django.utils import timezone
 
 from apps.students.models import Student
 from apps.subjects.models import Subject
@@ -27,8 +29,10 @@ class Result(models.Model):
     school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, null=True, blank=True, related_name="results")
     term = models.CharField(max_length=10, choices=TERM_CHOICES)
 
-    # ✅ ADD THIS
-    year = models.PositiveIntegerField(default=2025)
+    def _get_current_year() -> int:
+        return getattr(settings, "CURRENT_YEAR", timezone.now().year)
+
+    year = models.PositiveIntegerField(default=_get_current_year)
 
     reopen = models.FloatField(default=0, validators=[MinValueValidator(0), MaxValueValidator(20)])
     ca     = models.FloatField(default=0, validators=[MinValueValidator(0), MaxValueValidator(40)])

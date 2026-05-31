@@ -1,3 +1,8 @@
+from django.conf import settings
+from django.db.models import Sum
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
@@ -5,9 +10,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
-
-from django.db.models import Sum
-from django.shortcuts import get_object_or_404
 
 from apps.results.models import Result, Report
 from apps.students.models import Student
@@ -59,6 +61,10 @@ def get_grade_and_remark(score: float, thresholds: list) -> tuple[str, str]:
 
 def get_overall_grade(avg: float, thresholds: list) -> str:
     return get_grade_and_remark(avg, thresholds)[0]
+
+
+def get_current_year() -> int:
+    return getattr(settings, "CURRENT_YEAR", timezone.now().year)
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +182,11 @@ class ResultViewSet(ModelViewSet):
                 errors.append({"record": record, "error": f"Missing fields: {missing}"})
                 continue
 
-            year = int(record.get("year") or 2025)
+            try:
+                year = int(record.get("year") or get_current_year())
+            except (TypeError, ValueError):
+                errors.append({"record": record, "error": "year must be a valid integer"})
+                continue
 
             try:
                 # Fetch the existing row so we can do a true partial update
@@ -187,8 +197,15 @@ class ResultViewSet(ModelViewSet):
                     year=year,
                 ).first()
 
+                if "school_class" in record:
+                    school_class_id = record.get("school_class")
+                elif existing is not None:
+                    school_class_id = existing.school_class_id
+                else:
+                    school_class_id = None
+
                 defaults = {
-                    "school_class_id": record.get("school_class"),
+                    "school_class_id": school_class_id,
                 }
 
                 # Only overwrite a component if the caller actually sent it
@@ -222,7 +239,7 @@ class ResultViewSet(ModelViewSet):
                 r["subject"],
                 r["term"],
                 r.get("school_class"),
-                int(r.get("year") or 2025),
+                int(r.get("year") or get_current_year()),
             )
             for r in records
             if "subject" in r and "term" in r

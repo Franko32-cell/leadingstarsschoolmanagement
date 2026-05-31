@@ -98,11 +98,12 @@ CURRENT_YEAR = 2026
 # Reads DATABASE_URL env variable (set on Render)
 # Falls back to local SQLite for development
 
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
 DATABASES = {
     'default': dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        default=DATABASE_URL,
         conn_max_age=600,
-        ssl_require=not DEBUG,  # require SSL in production, not in dev
+        ssl_require=not DEBUG and not DATABASE_URL.startswith("sqlite:"),
     )
 }
 

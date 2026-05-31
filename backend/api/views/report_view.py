@@ -1,9 +1,10 @@
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.results.models import Result, Report
 from apps.students.models import Student
@@ -65,6 +66,10 @@ def get_thresholds(level: str) -> list:
     return GRADE_THRESHOLDS_B79
 
 
+def get_current_year() -> int:
+    return getattr(settings, "CURRENT_YEAR", timezone.now().year)
+
+
 def format_position(n):
     if n is None:
         return None
@@ -90,6 +95,15 @@ class StudentReportView(APIView):
         if not term:
             return Response({"error": "term is required"}, status=400)
 
+        year = request.query_params.get("year")
+        if year:
+            try:
+                year = int(year)
+            except (TypeError, ValueError):
+                return Response({"error": "year must be a valid integer"}, status=400)
+        else:
+            year = get_current_year()
+
         student    = get_object_or_404(Student, id=student_id)
         level      = getattr(student.school_class, "level", "basic_7_9") if student.school_class else "basic_7_9"
         thresholds = get_thresholds(level)
@@ -97,11 +111,11 @@ class StudentReportView(APIView):
 
         results = (
             Result.objects
-            .filter(student=student, term=term)
+            .filter(student=student, term=term, year=year)
             .select_related("subject")
         )
 
-        report = Report.objects.filter(student=student, term=term).first()
+        report = Report.objects.filter(student=student, term=term, year=year).first()
 
         subjects    = []
         total_score = 0
@@ -134,7 +148,7 @@ class StudentReportView(APIView):
         overall_grade = get_overall_grade(average, thresholds)
 
         # Attendance
-        term_attendance = Attendance.objects.filter(student=student, term=term)
+        term_attendance = Attendance.objects.filter(student=student, term=term, year=year)
         total_days      = term_attendance.count()
         present_days    = term_attendance.filter(status__in=["present", "late"]).count()
 
@@ -143,7 +157,7 @@ class StudentReportView(APIView):
         student_totals = []
 
         for s in class_students:
-            s_results = Result.objects.filter(student=s, term=term)
+            s_results = Result.objects.filter(student=s, term=term, year=year)
             student_totals.append({
                 "student_id": s.id,
                 "total":      sum(r.score or 0 for r in s_results),
@@ -161,6 +175,7 @@ class StudentReportView(APIView):
             "class":              student.school_class.name if student.school_class else None,
             "photo":              student.photo.url if student.photo else None,
             "term":               term,
+            "year":               year,
             "level":              level,
             "school_name":        SCHOOL_NAMES.get(level, "LEADING STARS ACADEMY"),
             "show_position":      show_position,
@@ -199,11 +214,20 @@ class StudentReportView(APIView):
 
         student = get_object_or_404(Student, id=student_id)
 
+        year = request.data.get("year")
+        if year is not None and year != "":
+            try:
+                year = int(year)
+            except (TypeError, ValueError):
+                return Response({"error": "year must be a valid integer"}, status=400)
+        else:
+            year = get_current_year()
+
         # year is part of unique_together — must be in the lookup, not just defaults
         report, _ = Report.objects.get_or_create(
             student=student,
             term=term,
-            year=timezone.now().year,
+            year=year,
             defaults={
                 "attendance":       0,
                 "attendance_total": 1,  # must be >= 1 per model validator
