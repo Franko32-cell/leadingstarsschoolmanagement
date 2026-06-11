@@ -14,7 +14,7 @@ import {
   FaArrowRight,
   FaSync,
   FaGraduationCap,
-  FaUserCheck,          // ← new
+  FaUserCheck,
 } from "react-icons/fa";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -23,17 +23,14 @@ const ghs = (n) =>
   `GHS ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0 })}`;
 
 const rateColor = (pct) =>
-  pct >= 80 ? "bg-emerald-500" : pct >= 50 ? "bg-amber-400" : "bg-red-500";
+  pct >= 80 ? "#1D9E75" : pct >= 50 ? "#EF9F27" : "#E24B4A";
 
-const rateText = (pct) =>
-  pct >= 80 ? "text-emerald-600" : pct >= 50 ? "text-amber-500" : "text-red-500";
-
-const rateBadge = (pct) =>
+const rateBgText = (pct) =>
   pct >= 80
-    ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+    ? { bg: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" }
     : pct >= 50
-    ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
-    : "bg-red-50 text-red-600 ring-1 ring-red-200";
+    ? { bg: "bg-amber-50 text-amber-700 ring-1 ring-amber-200" }
+    : { bg: "bg-red-50 text-red-600 ring-1 ring-red-200" };
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
@@ -41,93 +38,177 @@ const Skeleton = ({ className = "" }) => (
   <div className={`animate-pulse bg-slate-100 rounded-2xl ${className}`} />
 );
 
-const KpiCard = ({ label, value, sub, icon, iconBg, borderColor, onClick, index = 0 }) => (
+/* ---------- Neosoft KPI Card ---------- */
+const KpiCard = ({
+  label,
+  value,
+  sub,
+  icon,
+  accentColor,
+  iconBg,
+  onClick,
+  index = 0,
+}) => (
   <div
     onClick={onClick}
     style={{ animationDelay: `${index * 70}ms` }}
     className={`
-      group relative bg-white rounded-2xl p-5
+      group relative bg-white rounded-2xl overflow-hidden
       border border-slate-100 shadow-sm
       transition-all duration-200 animate-fade-in
-      ${onClick ? "cursor-pointer hover:shadow-md hover:-translate-y-0.5 active:scale-[0.99]" : ""}
+      ${onClick ? "cursor-pointer hover:shadow-lg hover:-translate-y-1 active:scale-[0.99]" : ""}
     `}
   >
-    {/* Left accent bar */}
-    <div className={`absolute left-0 top-4 bottom-4 w-[3px] rounded-r-full ${borderColor}`} />
+    {/* Top color band */}
+    <div
+      className="absolute top-0 left-0 right-0 h-[3px]"
+      style={{ background: accentColor }}
+    />
 
-    <div className="flex items-start justify-between gap-3 pl-2">
-      <div className="flex-1 min-w-0">
-        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-2 leading-none">
-          {label}
-        </p>
-        <p className="text-[2rem] font-black text-slate-800 leading-none tracking-tight tabular-nums">
-          {value}
-        </p>
-        {sub && (
-          <p className="text-xs text-slate-400 mt-2 leading-relaxed">{sub}</p>
-        )}
-      </div>
+    <div className="p-5 pt-6">
+      {/* Icon chip */}
       <div
-        className={`w-10 h-10 rounded-xl flex items-center justify-center text-base flex-shrink-0 ${iconBg}`}
+        className="w-10 h-10 rounded-xl flex items-center justify-center text-base mb-4 shadow-sm"
+        style={{ background: iconBg }}
       >
         {icon}
       </div>
-    </div>
 
-    {onClick && (
-      <div className="mt-4 pl-2 flex items-center gap-1.5 text-[11px] font-semibold text-slate-300 group-hover:text-blue-500 transition-colors">
-        <span>View details</span>
-        <FaArrowRight className="text-[9px] group-hover:translate-x-0.5 transition-transform" />
-      </div>
-    )}
+      {/* Label */}
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.14em] mb-1 leading-none">
+        {label}
+      </p>
+
+      {/* Value */}
+      <p className="text-[2rem] font-black text-slate-900 leading-none tracking-tight tabular-nums">
+        {value}
+      </p>
+
+      {/* Sub */}
+      {sub && (
+        <p className="text-[11px] text-slate-400 mt-2 leading-relaxed font-medium">
+          {sub}
+        </p>
+      )}
+
+      {/* CTA row */}
+      {onClick && (
+        <div className="mt-4 pt-4 border-t border-slate-50 flex items-center justify-between">
+          <span
+            className="text-[11px] font-semibold"
+            style={{ color: accentColor }}
+          >
+            View details
+          </span>
+          <div
+            className="w-6 h-6 rounded-lg flex items-center justify-center group-hover:translate-x-0.5 transition-transform"
+            style={{ background: iconBg }}
+          >
+            <FaArrowRight className="text-[9px]" style={{ color: accentColor }} />
+          </div>
+        </div>
+      )}
+    </div>
   </div>
 );
 
-const SectionLabel = ({ children }) => (
-  <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.18em] mb-3">
-    {children}
-  </h2>
-);
+/* ---------- Donut ---------- */
+const Donut = ({ pct, color, size = 64, stroke = 8 }) => {
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const offset = circ - (pct / 100) * circ;
+  const cx = size / 2;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle
+        cx={cx} cy={cx} r={r}
+        fill="none"
+        stroke="rgba(0,0,0,0.07)"
+        strokeWidth={stroke}
+      />
+      <circle
+        cx={cx} cy={cx} r={r}
+        fill="none"
+        stroke={color}
+        strokeWidth={stroke}
+        strokeDasharray={circ}
+        strokeDashoffset={offset}
+        strokeLinecap="round"
+        transform={`rotate(-90 ${cx} ${cx})`}
+        style={{ transition: "stroke-dashoffset 0.8s ease" }}
+      />
+      <text
+        x={cx} y={cx + 4}
+        textAnchor="middle"
+        fontSize="12"
+        fontWeight="800"
+        fill="#1e1b4b"
+      >
+        {pct}%
+      </text>
+    </svg>
+  );
+};
 
-const ProgressBar = ({ value, className = "" }) => (
-  <div className={`w-full bg-slate-100 rounded-full h-1.5 overflow-hidden ${className}`}>
+/* ---------- Progress Bar ---------- */
+const ProgressBar = ({ value, color }) => (
+  <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
     <div
-      className={`h-1.5 rounded-full transition-all duration-700 ease-out ${rateColor(value)}`}
-      style={{ width: `${Math.min(value, 100)}%` }}
+      className="h-1.5 rounded-full transition-all duration-700 ease-out"
+      style={{ width: `${Math.min(value, 100)}%`, background: color }}
     />
   </div>
 );
 
-const StatusPill = ({ label, bg, text, dot }) => (
-  <span
-    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold ${bg} ${text}`}
-  >
-    <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+/* ---------- Status Pill ---------- */
+const StatusPill = ({ label, dotColor, bg, text }) => (
+  <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold ${bg} ${text}`}>
+    <span className="w-1.5 h-1.5 rounded-full" style={{ background: dotColor }} />
     {label}
   </span>
 );
 
-const QuickAction = ({ label, description, path, gradient, icon, index }) => {
+/* ---------- Section Label ---------- */
+const SectionLabel = ({ children }) => (
+  <h2 className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.18em] mb-3">
+    {children}
+  </h2>
+);
+
+/* ---------- Quick Action Card ---------- */
+const QuickActionCard = ({ label, description, path, bgColor, iconBg, accentColor, icon, index }) => {
   const navigate = useNavigate();
   return (
     <button
       onClick={() => navigate(path)}
-      style={{ animationDelay: `${index * 60}ms` }}
+      style={{ animationDelay: `${index * 60}ms`, background: bgColor }}
       className={`
-        group relative ${gradient} text-white rounded-2xl p-4 text-left
-        hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.99]
-        transition-all duration-200 overflow-hidden animate-fade-in
+        group relative rounded-2xl p-4 text-left overflow-hidden
+        border transition-all duration-200 animate-fade-in
+        hover:shadow-md hover:-translate-y-0.5 active:scale-[0.99]
       `}
+      style={{ background: bgColor, borderColor: `${accentColor}30` }}
     >
-      <div className="absolute inset-0 bg-white/0 group-hover:bg-white/5 transition-colors rounded-2xl" />
-      <div className="relative">
-        <span className="text-2xl leading-none block mb-3">{icon}</span>
-        <p className="text-sm font-bold leading-snug">{label}</p>
-        {description && (
-          <p className="text-[11px] text-white/60 mt-0.5 leading-none">{description}</p>
-        )}
+      <div
+        className="w-9 h-9 rounded-xl flex items-center justify-center text-lg mb-3"
+        style={{ background: iconBg }}
+      >
+        {icon}
       </div>
-      <FaArrowRight className="absolute bottom-3.5 right-3.5 text-white/30 group-hover:text-white/70 group-hover:translate-x-0.5 transition-all text-[10px]" />
+      <p className="text-[13px] font-bold leading-snug" style={{ color: accentColor }}>
+        {label}
+      </p>
+      {description && (
+        <p className="text-[11px] mt-0.5 font-medium" style={{ color: `${accentColor}80` }}>
+          {description}
+        </p>
+      )}
+      <div
+        className="absolute bottom-3.5 right-3.5 w-6 h-6 rounded-lg flex items-center justify-center opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all"
+        style={{ background: iconBg }}
+      >
+        <FaArrowRight className="text-[9px]" style={{ color: accentColor }} />
+      </div>
     </button>
   );
 };
@@ -136,13 +217,13 @@ const QuickAction = ({ label, description, path, gradient, icon, index }) => {
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [stats, setStats]           = useState(null);
-  const [feeStats, setFeeStats]     = useState(null);
-  const [attStats, setAttStats]     = useState(null);
-  const [activeUsers, setActiveUsers] = useState(null);   // ← new
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState("");
-  const [refreshing, setRefreshing] = useState(false);
+  const [stats, setStats]             = useState(null);
+  const [feeStats, setFeeStats]       = useState(null);
+  const [attStats, setAttStats]       = useState(null);
+  const [activeUsers, setActiveUsers] = useState(null);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState("");
+  const [refreshing, setRefreshing]   = useState(false);
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -158,7 +239,7 @@ const Dashboard = () => {
         getDashboard(),
         API.get("/accounts/dashboard/"),
         API.get(`/attendance/?date=${today}`),
-        API.get("/accounts/active-users/"),   // ← new
+        API.get("/accounts/active-users/"),
       ]);
 
       if (dashRes.status === "fulfilled") setStats(dashRes.value);
@@ -170,7 +251,6 @@ const Dashboard = () => {
         ).length;
         setAttStats({ present, total: records.length });
       }
-      // ← new: set active users count
       if (activeRes.status === "fulfilled") {
         setActiveUsers(activeRes.value.data.active_users);
       }
@@ -198,7 +278,7 @@ const Dashboard = () => {
   // ── Loading skeleton ──────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 p-6 space-y-8">
+      <div className="min-h-screen p-6 space-y-8" style={{ background: "#f7f6fb" }}>
         <div className="flex items-center justify-between">
           <div className="space-y-2">
             <Skeleton className="h-8 w-40" />
@@ -207,18 +287,14 @@ const Dashboard = () => {
           <Skeleton className="h-9 w-24" />
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-36" />)}
-        </div>
-        {/* extra skeleton card for active users row */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Skeleton className="h-36" />
+          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-44" />)}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-36" />)}
         </div>
-        <Skeleton className="h-52" />
+        <Skeleton className="h-56" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-28" />)}
+          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-32" />)}
         </div>
       </div>
     );
@@ -227,7 +303,7 @@ const Dashboard = () => {
   // ── Error state ───────────────────────────────────────────────────────────
   if (error) {
     return (
-      <div className="min-h-screen bg-slate-50 p-8 flex items-start justify-center">
+      <div className="min-h-screen p-8 flex items-start justify-center" style={{ background: "#f7f6fb" }}>
         <div className="w-full max-w-md bg-white rounded-2xl border border-red-100 shadow-sm p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
@@ -250,27 +326,30 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen" style={{ background: "#f7f6fb" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-8">
 
         {/* ── Header ── */}
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5 mb-1">
-              <div className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center">
-                <FaGraduationCap className="text-white text-xs" />
+              <div
+                className="w-8 h-8 rounded-xl flex items-center justify-center shadow-sm"
+                style={{ background: "linear-gradient(135deg, #7F77DD, #534AB7)" }}
+              >
+                <FaGraduationCap className="text-white text-sm" />
               </div>
-              <h1 className="text-xl font-black text-slate-900 tracking-tight">
+              <h1 className="text-xl font-black tracking-tight" style={{ color: "#1e1b4b" }}>
                 Dashboard
               </h1>
             </div>
-            <p className="text-xs text-slate-400 ml-9">{dateStr}</p>
+            <p className="text-xs text-slate-400 ml-[42px]">{dateStr}</p>
           </div>
 
           <button
             onClick={() => loadAll(true)}
             disabled={refreshing}
-            className="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-blue-600 bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 shadow-sm transition-colors disabled:opacity-40 shrink-0"
+            className="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-violet-600 bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 shadow-sm transition-colors disabled:opacity-40 shrink-0"
           >
             <FaSync className={`text-[10px] ${refreshing ? "animate-spin" : ""}`} />
             Refresh
@@ -280,74 +359,58 @@ const Dashboard = () => {
         {/* ── Section 1: School Overview ── */}
         <section>
           <SectionLabel>School overview</SectionLabel>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <KpiCard
               index={0}
               label="Total Students"
               value={stats?.total_students ?? 0}
-              icon={<FaUserGraduate className="text-blue-500 text-sm" />}
-              iconBg="bg-blue-50"
-              borderColor="bg-blue-500"
+              icon={<FaUserGraduate style={{ color: "#7F77DD" }} />}
+              iconBg="#EEEDFE"
+              accentColor="#7F77DD"
               onClick={() => navigate("/admin/students")}
             />
             <KpiCard
               index={1}
               label="Total Teachers"
               value={stats?.total_teachers ?? 0}
-              icon={<FaChalkboardTeacher className="text-emerald-500 text-sm" />}
-              iconBg="bg-emerald-50"
-              borderColor="bg-emerald-500"
+              icon={<FaChalkboardTeacher style={{ color: "#1D9E75" }} />}
+              iconBg="#E1F5EE"
+              accentColor="#1D9E75"
               onClick={() => navigate("/admin/teachers")}
             />
             <KpiCard
               index={2}
               label="Total Classes"
               value={stats?.total_classes ?? 0}
-              icon={<FaSchool className="text-violet-500 text-sm" />}
-              iconBg="bg-violet-50"
-              borderColor="bg-violet-500"
+              icon={<FaSchool style={{ color: "#378ADD" }} />}
+              iconBg="#E6F1FB"
+              accentColor="#378ADD"
               onClick={() => navigate("/admin/classes")}
             />
             <KpiCard
               index={3}
               label="Pending Admissions"
               value={stats?.pending_admissions ?? 0}
-              icon={<FaClipboardCheck className="text-amber-500 text-sm" />}
-              iconBg="bg-amber-50"
-              borderColor="bg-amber-400"
+              icon={<FaClipboardCheck style={{ color: "#EF9F27" }} />}
+              iconBg="#FAEEDA"
+              accentColor="#EF9F27"
               sub={`${stats?.approved_admissions ?? 0} approved this year`}
               onClick={() => navigate("/admin/admissions")}
             />
           </div>
         </section>
 
-        {/* ── Section 2: Active Users (new) ── */}
-        <section>
-          <SectionLabel>System activity</SectionLabel>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <KpiCard
-              index={0}
-              label="Active Users"
-              value={activeUsers ?? "—"}
-              icon={<FaUserCheck className="text-teal-500 text-sm" />}
-              iconBg="bg-teal-50"
-              borderColor="bg-teal-500"
-              sub="Staff currently logged in"
-            />
-          </div>
-        </section>
-
-        {/* ── Section 3: Finance & Attendance ── */}
+        {/* ── Section 2: Finance & Attendance row ── */}
         <section>
           <SectionLabel>Finance &amp; Attendance</SectionLabel>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <KpiCard
               index={0}
               label="Fees Collected"
               value={feeStats ? ghs(feeStats.total_paid) : "—"}
-              icon={<FaMoneyBillWave className="text-emerald-500 text-sm" />}
-              iconBg="bg-emerald-50"
-              borderColor="bg-emerald-500"
+              icon={<FaMoneyBillWave style={{ color: "#1D9E75" }} />}
+              iconBg="#E1F5EE"
+              accentColor="#1D9E75"
               sub={feeStats ? `${ghs(feeStats.total_balance)} outstanding` : ""}
               onClick={() => navigate("/admin/accounts")}
             />
@@ -355,9 +418,9 @@ const Dashboard = () => {
               index={1}
               label="Collection Rate"
               value={feeStats ? `${collectionRate}%` : "—"}
-              icon={<FaChartLine className="text-indigo-500 text-sm" />}
-              iconBg="bg-indigo-50"
-              borderColor="bg-indigo-500"
+              icon={<FaChartLine style={{ color: "#534AB7" }} />}
+              iconBg="#EEEDFE"
+              accentColor="#534AB7"
               sub={
                 feeStats
                   ? `${feeStats.fully_paid} paid · ${feeStats.partial} partial · ${feeStats.unpaid} unpaid`
@@ -369,9 +432,9 @@ const Dashboard = () => {
               index={2}
               label="Today's Attendance"
               value={attStats ? `${attStats.present}/${attStats.total}` : "—"}
-              icon={<FaCalendarCheck className="text-orange-500 text-sm" />}
-              iconBg="bg-orange-50"
-              borderColor="bg-orange-400"
+              icon={<FaCalendarCheck style={{ color: "#D85A30" }} />}
+              iconBg="#FAECE7"
+              accentColor="#D85A30"
               sub={
                 attPercent !== null
                   ? `${attPercent}% present today`
@@ -382,70 +445,129 @@ const Dashboard = () => {
           </div>
         </section>
 
+        {/* ── Section 3: Active Users + Donut ── */}
+        <section>
+          <SectionLabel>System activity</SectionLabel>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Active Users card */}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden relative">
+              <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: "#1D9E75" }} />
+              <div className="p-5 pt-6 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center relative" style={{ background: "#E1F5EE" }}>
+                  <FaUserCheck style={{ color: "#1D9E75" }} />
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white animate-pulse" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.14em] leading-none mb-1">
+                    Active Users
+                  </p>
+                  <p className="text-3xl font-black leading-none tracking-tight tabular-nums" style={{ color: "#1e1b4b" }}>
+                    {activeUsers ?? "—"}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1 font-medium">
+                    Staff online now
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Attendance donut card */}
+            {attPercent !== null && (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden relative">
+                <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: "#D85A30" }} />
+                <div className="p-5 pt-6 flex items-center gap-4">
+                  <Donut pct={attPercent} color="#D85A30" size={64} stroke={7} />
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.14em] leading-none mb-1">
+                      Attendance Rate
+                    </p>
+                    <p className="text-3xl font-black leading-none tracking-tight tabular-nums" style={{ color: "#1e1b4b" }}>
+                      {attPercent}%
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1 font-medium">
+                      {attStats.present} of {attStats.total} present
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
         {/* ── Section 4: Fee Collection Progress ── */}
         {feeStats && (
           <section>
             <SectionLabel>Fee collection progress</SectionLabel>
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-5">
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              {/* Top accent */}
+              <div className="h-[3px]" style={{ background: "linear-gradient(90deg, #7F77DD, #1D9E75, #EF9F27)" }} />
 
-              {/* Overall bar */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
+              <div className="p-5 space-y-5">
+                {/* Header */}
+                <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-sm font-bold text-slate-700">Overall collection</span>
-                    <span className="ml-2 text-xs text-slate-400">
+                    <p className="text-sm font-bold text-slate-800">Overall collection</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
                       {ghs(feeStats.total_paid)} of {ghs(feeStats.total_billed)}
-                    </span>
+                    </p>
                   </div>
-                  <span className={`text-xs font-black px-2.5 py-1 rounded-full ${rateBadge(collectionRate)}`}>
+                  <span
+                    className="text-sm font-black px-3 py-1.5 rounded-xl"
+                    style={{
+                      background: `${rateColor(collectionRate)}18`,
+                      color: rateColor(collectionRate),
+                    }}
+                  >
                     {collectionRate}%
                   </span>
                 </div>
-                <ProgressBar value={collectionRate} />
-              </div>
 
-              {/* Term breakdown */}
-              {feeStats.term_breakdown?.length > 0 && (
-                <div className="grid grid-cols-3 gap-4 pt-5 border-t border-slate-100">
-                  {feeStats.term_breakdown.map((t) => {
-                    const pct = t.billed > 0 ? Math.round((t.paid / t.billed) * 100) : 0;
-                    return (
-                      <div key={t.term} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold text-slate-600">{t.label}</span>
-                          <span className={`text-[11px] font-bold ${rateText(pct)}`}>{pct}%</span>
+                <ProgressBar value={collectionRate} color={rateColor(collectionRate)} />
+
+                {/* Term breakdown */}
+                {feeStats.term_breakdown?.length > 0 && (
+                  <div className="grid grid-cols-3 gap-6 pt-4 border-t border-slate-50">
+                    {feeStats.term_breakdown.map((t) => {
+                      const pct = t.billed > 0 ? Math.round((t.paid / t.billed) * 100) : 0;
+                      const col = rateColor(pct);
+                      return (
+                        <div key={t.term} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-slate-600">{t.label}</span>
+                            <span className="text-[11px] font-bold" style={{ color: col }}>{pct}%</span>
+                          </div>
+                          <ProgressBar value={pct} color={col} />
+                          <div className="flex justify-between text-[10px] text-slate-400 font-medium">
+                            <span>{ghs(t.paid)}</span>
+                            <span className="text-slate-300">{ghs(t.billed)}</span>
+                          </div>
                         </div>
-                        <ProgressBar value={pct} />
-                        <div className="flex justify-between text-[11px] text-slate-400">
-                          <span>{ghs(t.paid)}</span>
-                          <span className="text-slate-300">{ghs(t.billed)}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Status pills */}
+                <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-50">
+                  <StatusPill
+                    label={`${feeStats.fully_paid} Fully Paid`}
+                    dotColor="#1D9E75"
+                    bg="bg-emerald-50"
+                    text="text-emerald-700"
+                  />
+                  <StatusPill
+                    label={`${feeStats.partial} Partial`}
+                    dotColor="#EF9F27"
+                    bg="bg-amber-50"
+                    text="text-amber-700"
+                  />
+                  <StatusPill
+                    label={`${feeStats.unpaid} Unpaid`}
+                    dotColor="#E24B4A"
+                    bg="bg-red-50"
+                    text="text-red-600"
+                  />
                 </div>
-              )}
-
-              {/* Status pills */}
-              <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-100">
-                <StatusPill
-                  label={`${feeStats.fully_paid} Fully Paid`}
-                  bg="bg-emerald-50"
-                  text="text-emerald-700"
-                  dot="bg-emerald-500"
-                />
-                <StatusPill
-                  label={`${feeStats.partial} Partial`}
-                  bg="bg-amber-50"
-                  text="text-amber-700"
-                  dot="bg-amber-400"
-                />
-                <StatusPill
-                  label={`${feeStats.unpaid} Unpaid`}
-                  bg="bg-red-50"
-                  text="text-red-600"
-                  dot="bg-red-500"
-                />
               </div>
             </div>
           </section>
@@ -455,36 +577,44 @@ const Dashboard = () => {
         <section>
           <SectionLabel>Quick actions</SectionLabel>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <QuickAction
+            <QuickActionCard
               index={0}
               label="Add Student"
               description="New enrollment"
               path="/admin/admissions"
-              gradient="bg-gradient-to-br from-blue-600 to-blue-500"
+              bgColor="#EEEDFE"
+              iconBg="#CECBF6"
+              accentColor="#534AB7"
               icon="🎓"
             />
-            <QuickAction
+            <QuickActionCard
               index={1}
               label="Enter Results"
               description="Academic records"
               path="/admin/results"
-              gradient="bg-gradient-to-br from-violet-600 to-violet-500"
+              bgColor="#E6F1FB"
+              iconBg="#B5D4F4"
+              accentColor="#185FA5"
               icon="📝"
             />
-            <QuickAction
+            <QuickActionCard
               index={2}
               label="Mark Attendance"
               description="Today's register"
               path="/admin/attendance"
-              gradient="bg-gradient-to-br from-orange-500 to-amber-400"
+              bgColor="#FAEEDA"
+              iconBg="#FAC775"
+              accentColor="#854F0B"
               icon="✅"
             />
-            <QuickAction
+            <QuickActionCard
               index={3}
               label="Record Payment"
               description="Fee collection"
               path="/admin/fees"
-              gradient="bg-gradient-to-br from-emerald-600 to-emerald-500"
+              bgColor="#E1F5EE"
+              iconBg="#9FE1CB"
+              accentColor="#0F6E56"
               icon="💳"
             />
           </div>
@@ -494,11 +624,11 @@ const Dashboard = () => {
 
       <style>{`
         @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(6px); }
+          from { opacity: 0; transform: translateY(8px); }
           to   { opacity: 1; transform: translateY(0); }
         }
         .animate-fade-in {
-          animation: fadeIn 0.3s ease both;
+          animation: fadeIn 0.35s ease both;
           opacity: 0;
         }
       `}</style>
