@@ -1,16 +1,17 @@
 # api/views/teacher_view.py
+import secrets
+import string
+
 from rest_framework import viewsets, filters
+from rest_framework.decorators import action
+from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend, FilterSet, CharFilter
+
 from apps.teachers.models import Teacher
 from api.serializers.teacher_serializer import TeacherSerializer
 
 
 class TeacherFilter(FilterSet):
-    """
-    Enables filtering via query params:
-      ?school_class=3
-      ?subject=7
-    """
     school_class = CharFilter(field_name="school_class__id")
     subject      = CharFilter(field_name="subject__id")
 
@@ -20,24 +21,6 @@ class TeacherFilter(FilterSet):
 
 
 class TeacherViewSet(viewsets.ModelViewSet):
-    """
-    CRUD endpoint for Teacher records.
-
-    Fixes applied
-    -------------
-    BUG 1 — No filtering: the original viewset returned every teacher in the
-            database regardless of query params. TeacherFilter wires up
-            ?school_class= and ?subject= so callers can scope the list.
-
-    BUG 2 — N+1 queries: without select_related, accessing teacher.user,
-            teacher.subject, or teacher.school_class inside the serializer
-            fired an extra DB query per row. select_related collapses those
-            into a single JOIN.
-
-    Note: authentication and pagination are provided globally via settings.py
-    (DEFAULT_PERMISSION_CLASSES and DEFAULT_PAGINATION_CLASS).
-    """
-
     serializer_class = TeacherSerializer
     filterset_class  = TeacherFilter
     filter_backends  = [DjangoFilterBackend, filters.OrderingFilter]
@@ -50,3 +33,15 @@ class TeacherViewSet(viewsets.ModelViewSet):
             .select_related("user", "subject", "school_class")
             .all()
         )
+
+    @action(detail=True, methods=["post"], url_path="reset-password")
+    def reset_password(self, request, pk=None):
+        teacher = self.get_object()  # respects get_queryset + permissions
+
+        alphabet     = string.ascii_letters + string.digits
+        new_password = ''.join(secrets.choice(alphabet) for _ in range(12))
+
+        teacher.user.set_password(new_password)
+        teacher.user.save(update_fields=["password"])
+
+        return Response({"new_password": new_password})
