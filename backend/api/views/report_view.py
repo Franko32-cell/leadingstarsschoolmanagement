@@ -9,6 +9,7 @@ Changes vs the previous version:
 """
 
 from django.conf import settings
+from django.db.utils import ProgrammingError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -125,13 +126,28 @@ class StudentReportView(APIView):
             .select_related("subject")
         )
 
-        # Eagerly fetch next_class so we get name in one query
-        report = (
-            Report.objects
-            .select_related("next_class")
-            .filter(student=student, term=term, year=year)
-            .first()
-        )
+        # Try the richer query first; fall back if the database schema is
+        # still on the older migration set.
+        try:
+            report = (
+                Report.objects
+                .select_related("next_class")
+                .filter(student=student, term=term, year=year)
+                .first()
+            )
+            has_extended_report_fields = True
+        except ProgrammingError:
+            report = (
+                Report.objects
+                .filter(student=student, term=term, year=year)
+                .only(
+                    "id", "student_id", "term", "year",
+                    "conduct", "interest", "teacher_remark",
+                    "vacation_date", "resumption_date",
+                )
+                .first()
+            )
+            has_extended_report_fields = False
 
         subjects    = []
         total_score = 0
@@ -219,10 +235,14 @@ class StudentReportView(APIView):
             "vacation_date":    str(report.vacation_date)   if report and report.vacation_date   else None,
             "resumption_date":  str(report.resumption_date) if report and report.resumption_date else None,
 
-            # Promotion
-            "promotion_status": report.promotion_status           if report else None,
-            "next_class":       report.next_class_id              if report else None,
-            "next_class_name":  report.next_class.name            if report and report.next_class else None,
+            # Promotion (fall back to None if the promotion columns are not yet available)
+            "promotion_status": report.promotion_status if has_extended_report_fields and report else None,
+            "next_class":       report.next_class_id    if has_extended_report_fields and report else None,
+            "next_class_name":  (
+                report.next_class.name
+                if has_extended_report_fields and report and report.next_class
+                else None
+            ),
         })
 
     # ── PATCH ─────────────────────────────────────────────────────────────

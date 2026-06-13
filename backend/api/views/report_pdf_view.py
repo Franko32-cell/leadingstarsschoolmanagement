@@ -6,6 +6,7 @@ import os
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.conf import settings
+from django.db.utils import ProgrammingError
 
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle,
@@ -242,7 +243,22 @@ class StudentReportPDFView(APIView):
 
         student = get_object_or_404(Student, id=student_id)
         results = Result.objects.filter(student=student, term=term).select_related("subject")
-        report  = Report.objects.select_related("next_class").filter(student=student, term=term).first()
+
+        try:
+            report = Report.objects.select_related("next_class").filter(student=student, term=term).first()
+            has_extended_report_fields = True
+        except ProgrammingError:
+            report = (
+                Report.objects
+                .filter(student=student, term=term)
+                .only(
+                    "id", "student_id", "term", "year",
+                    "conduct", "interest", "teacher_remark",
+                    "vacation_date", "resumption_date",
+                )
+                .first()
+            )
+            has_extended_report_fields = False
 
         level         = getattr(student.school_class, "level", "basic_7_9") if student.school_class else "basic_7_9"
         thresholds    = get_thresholds(level)
@@ -294,8 +310,12 @@ class StudentReportPDFView(APIView):
 
         vacation_date    = getattr(report, "vacation_date", None) if report else None
         resumption_date  = getattr(report, "resumption_date", None) if report else None
-        promotion_status = getattr(report, "promotion_status", None) if report else None
-        next_class_name  = getattr(report.next_class, "name", None) if report and report.next_class else None
+        promotion_status = getattr(report, "promotion_status", None) if has_extended_report_fields and report else None
+        next_class_name  = (
+            getattr(report.next_class, "name", None)
+            if has_extended_report_fields and report and report.next_class
+            else None
+        )
 
         # ── Build PDF ──────────────────────────────────────────────────────
         buffer = BytesIO()
