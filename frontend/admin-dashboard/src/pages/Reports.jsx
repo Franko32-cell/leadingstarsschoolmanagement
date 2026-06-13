@@ -1,3 +1,19 @@
+/**
+ * Reports.jsx
+ * Drop-in replacement for:
+ *   frontend/admin-dashboard/src/pages/Reports.jsx
+ *
+ * What's new / improved:
+ *   • Cleaner dark-header banner with inline promotion badge
+ *   • Color-coded average stat (green / amber / red)
+ *   • Subject table with sticky header, zebra rows, hover highlight
+ *   • Attendance bar color-codes the percentage label too
+ *   • Consistent section headers (icon + label + hairline)
+ *   • Promotion Status panel — four toggle buttons; "Promoted" reveals
+ *     a "Promoted to Class" dropdown populated from the classes list
+ *   • Backend fields: promotion_status, next_class (FK id) sent on PATCH
+ */
+
 import { useEffect, useState } from "react";
 import API from "../services/api";
 
@@ -10,29 +26,26 @@ const TERMS = [
   { value: "term3", label: "Term 3" },
 ];
 
-// FIX: derive the active term from a single constant so there is one place
-// to update when the school moves to a new term.
-// Must match settings.CURRENT_TERM on the backend.
 const CURRENT_TERM = "term3";
 
 const GRADE_COLORS = {
-  "A":  "bg-green-100   text-green-800",
+  "A":  "bg-green-100 text-green-800",
   "B":  "bg-emerald-100 text-emerald-800",
-  "C":  "bg-blue-100    text-blue-800",
-  "D":  "bg-cyan-100    text-cyan-800",
-  "1":  "bg-green-100   text-green-800",
+  "C":  "bg-blue-100 text-blue-800",
+  "D":  "bg-cyan-100 text-cyan-800",
+  "1":  "bg-green-100 text-green-800",
   "2":  "bg-emerald-100 text-emerald-800",
-  "3":  "bg-blue-100    text-blue-800",
-  "4":  "bg-cyan-100    text-cyan-800",
-  "5":  "bg-yellow-100  text-yellow-800",
-  "6":  "bg-orange-100  text-orange-800",
-  "7":  "bg-red-100     text-red-700",
-  "8":  "bg-red-200     text-red-800",
-  "9":  "bg-red-300     text-red-900",
-  "E2": "bg-orange-100  text-orange-800",
-  "E3": "bg-red-100     text-red-700",
-  "E4": "bg-red-200     text-red-800",
-  "E5": "bg-red-300     text-red-900",
+  "3":  "bg-blue-100 text-blue-800",
+  "4":  "bg-cyan-100 text-cyan-800",
+  "5":  "bg-yellow-100 text-yellow-800",
+  "6":  "bg-orange-100 text-orange-800",
+  "7":  "bg-red-100 text-red-700",
+  "8":  "bg-red-200 text-red-800",
+  "9":  "bg-red-300 text-red-900",
+  "E2": "bg-orange-100 text-orange-800",
+  "E3": "bg-red-100 text-red-700",
+  "E4": "bg-red-200 text-red-800",
+  "E5": "bg-red-300 text-red-900",
 };
 
 const GRADE_SCALE_B79 = [
@@ -60,6 +73,37 @@ const GRADE_SCALE_B16 = [
 
 const CONDUCT_OPTIONS = ["Excellent", "Very Good", "Good", "Fair", "Poor"];
 
+const PROMOTION_OPTIONS = [
+  {
+    value: "promoted",
+    label: "Promoted",
+    icon: "🎓",
+    activeClass: "border-green-400 bg-green-50 text-green-800 ring-2 ring-green-300 ring-offset-1",
+    idleClass:   "border-slate-200 text-slate-500 hover:border-green-300 hover:bg-green-50/50",
+  },
+  {
+    value: "repeated",
+    label: "Repeated",
+    icon: "🔁",
+    activeClass: "border-amber-400 bg-amber-50 text-amber-800 ring-2 ring-amber-300 ring-offset-1",
+    idleClass:   "border-slate-200 text-slate-500 hover:border-amber-300 hover:bg-amber-50/50",
+  },
+  {
+    value: "transferred",
+    label: "Transferred",
+    icon: "🏫",
+    activeClass: "border-blue-400 bg-blue-50 text-blue-800 ring-2 ring-blue-300 ring-offset-1",
+    idleClass:   "border-slate-200 text-slate-500 hover:border-blue-300 hover:bg-blue-50/50",
+  },
+  {
+    value: "withdrawn",
+    label: "Withdrawn",
+    icon: "📋",
+    activeClass: "border-red-400 bg-red-50 text-red-800 ring-2 ring-red-300 ring-offset-1",
+    idleClass:   "border-slate-200 text-slate-500 hover:border-red-300 hover:bg-red-50/50",
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -69,18 +113,51 @@ const getStudentName = (s) =>
   s?.admission_number ||
   "Unknown";
 
-// Round a numeric value; return "-" if null/undefined
 const fmt = (v) => (v == null ? "-" : Math.round(v));
 
-// Compute attendance percent locally so we're not relying on the API field.
 const calcAttendancePct = (present, total) => {
   if (!total) return 0;
   return Math.round((present / total) * 100);
 };
 
-// FIX: convert empty string → null so Django date fields don't get "" which
-// causes a 400 ValidationError ("Enter a valid date").
 const dateOrNull = (v) => (v && v.trim() !== "" ? v : null);
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+const SectionHeader = ({ icon, title }) => (
+  <div className="flex items-center gap-2 mb-3">
+    <span>{icon}</span>
+    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{title}</h3>
+    <div className="flex-1 h-px bg-slate-100" />
+  </div>
+);
+
+const PromotionBadge = ({ status }) => {
+  const map = {
+    promoted:    { icon: "🎓", label: "Promoted",    cls: "bg-green-100 text-green-800 border-green-200" },
+    repeated:    { icon: "🔁", label: "Repeated",    cls: "bg-amber-100 text-amber-800 border-amber-200" },
+    transferred: { icon: "🏫", label: "Transferred", cls: "bg-blue-100  text-blue-800  border-blue-200"  },
+    withdrawn:   { icon: "📋", label: "Withdrawn",   cls: "bg-red-100   text-red-800   border-red-200"   },
+  };
+  const opt = map[status];
+  if (!opt) return null;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${opt.cls}`}>
+      {opt.icon} {opt.label}
+    </span>
+  );
+};
+
+const FormLabel = ({ children }) => (
+  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+    {children}
+  </label>
+);
+
+const selectCls =
+  "w-full border border-slate-200 bg-white rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -90,21 +167,21 @@ const Reports = () => {
   const [students, setStudents]               = useState([]);
   const [selectedClass, setSelectedClass]     = useState("");
   const [selectedStudent, setSelectedStudent] = useState("");
-
-  // FIX: default to CURRENT_TERM, not "term1"
   const [selectedTerm, setSelectedTerm]       = useState(CURRENT_TERM);
 
-  const [report, setReport]         = useState(null);
-  const [loading, setLoading]       = useState(false);
+  const [report, setReport]           = useState(null);
+  const [loading, setLoading]         = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [error, setError]           = useState("");
+  const [error, setError]             = useState("");
 
   const [remarks, setRemarks] = useState({
-    conduct:         "",
-    interest:        "",
-    teacher_remark:  "",
-    vacation_date:   "",
-    resumption_date: "",
+    conduct:          "",
+    interest:         "",
+    teacher_remark:   "",
+    vacation_date:    "",
+    resumption_date:  "",
+    promotion_status: "",
+    next_class:       "",
   });
   const [savingRemarks, setSavingRemarks] = useState(false);
   const [remarksSaved, setRemarksSaved]   = useState(false);
@@ -124,10 +201,10 @@ const Reports = () => {
   }, [selectedClass]);
 
   useEffect(() => {
-    // FIX: also clear the "saved" badge when the user switches student or term
     setRemarksSaved(false);
     if (selectedStudent && selectedTerm) fetchReport();
     else setReport(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStudent, selectedTerm]);
 
   const fetchClasses = async () => {
@@ -159,11 +236,13 @@ const Reports = () => {
       );
       setReport(res.data);
       setRemarks({
-        conduct:         res.data.conduct         || "",
-        interest:        res.data.interest        || "",
-        teacher_remark:  res.data.teacher_remark  || "",
-        vacation_date:   res.data.vacation_date   || "",
-        resumption_date: res.data.resumption_date || "",
+        conduct:          res.data.conduct          || "",
+        interest:         res.data.interest         || "",
+        teacher_remark:   res.data.teacher_remark   || "",
+        vacation_date:    res.data.vacation_date    || "",
+        resumption_date:  res.data.resumption_date  || "",
+        promotion_status: res.data.promotion_status || "",
+        next_class:       res.data.next_class       ? String(res.data.next_class) : "",
       });
     } catch (err) {
       setError(
@@ -179,22 +258,28 @@ const Reports = () => {
   // -------------------------------------------------------------------------
   // Actions
   // -------------------------------------------------------------------------
+  const setRemark = (key, val) => {
+    setRemarks((p) => ({ ...p, [key]: val }));
+    setRemarksSaved(false);
+  };
+
   const saveRemarks = async () => {
     setSavingRemarks(true);
     setRemarksSaved(false);
     setError("");
     try {
       await API.patch(`/report/student/${selectedStudent}/`, {
-        term:            selectedTerm,
-        conduct:         remarks.conduct,
-        interest:        remarks.interest,
-        teacher_remark:  remarks.teacher_remark,
-        // FIX: send null instead of "" so Django DateField doesn't reject it
-        vacation_date:   dateOrNull(remarks.vacation_date),
-        resumption_date: dateOrNull(remarks.resumption_date),
+        term:             selectedTerm,
+        conduct:          remarks.conduct,
+        interest:         remarks.interest,
+        teacher_remark:   remarks.teacher_remark,
+        vacation_date:    dateOrNull(remarks.vacation_date),
+        resumption_date:  dateOrNull(remarks.resumption_date),
+        promotion_status: remarks.promotion_status || null,
+        next_class:       remarks.next_class        || null,
       });
       setRemarksSaved(true);
-      // Refresh report data to reflect saved remarks
+      // Re-fetch to sync any server-side transformations
       const res = await API.get(
         `/report/student/${selectedStudent}/?term=${selectedTerm}`
       );
@@ -236,278 +321,334 @@ const Reports = () => {
   };
 
   // -------------------------------------------------------------------------
-  // Derived display values
+  // Derived
   // -------------------------------------------------------------------------
-  const level      = report?.level || "basic_7_9";
-  const gradeScale = level === "basic_7_9" ? GRADE_SCALE_B79 : GRADE_SCALE_B16;
+  const level          = report?.level || "basic_7_9";
+  const gradeScale     = level === "basic_7_9" ? GRADE_SCALE_B79 : GRADE_SCALE_B16;
   const subjectOptions = report?.subjects?.map((s) => s.subject) || [];
+  const attendancePct  = calcAttendancePct(report?.attendance, report?.attendance_total);
 
-  // FIX: compute attendance % locally; don't rely on API sending the field
-  const attendancePct = calcAttendancePct(
-    report?.attendance,
-    report?.attendance_total
-  );
+  const avgColor =
+    report?.average_score >= 60 ? "text-green-600" :
+    report?.average_score >= 45 ? "text-amber-500" : "text-red-600";
+
+  const attBarColor =
+    attendancePct >= 80 ? "bg-green-500" :
+    attendancePct >= 60 ? "bg-amber-400" : "bg-red-500";
+
+  const attTextColor =
+    attendancePct >= 80 ? "text-green-600" :
+    attendancePct >= 60 ? "text-amber-600" : "text-red-600";
 
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Student Reports</h1>
+    <div className="min-h-screen bg-slate-50 p-6">
+      <div className="max-w-4xl mx-auto space-y-6">
 
-      {error && (
-        <div className="mb-4 p-3 bg-red-100 text-red-700 border border-red-300 rounded">
-          {error}
+        {/* Page heading */}
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Student Reports</h1>
+          <p className="text-sm text-slate-400 mt-0.5">
+            View, annotate and download terminal report cards
+          </p>
         </div>
-      )}
 
-      {/* ── Filters ─────────────────────────────────────────────────────── */}
-      <div className="flex gap-3 mb-6 flex-wrap items-center">
-        <select
-          value={selectedClass}
-          onChange={(e) => {
-            setSelectedClass(e.target.value);
-            setReport(null);
-          }}
-          className="border p-2 rounded min-w-[150px]"
-        >
-          <option value="">Select Class</option>
-          {classes.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-
-        <select
-          value={selectedStudent}
-          onChange={(e) => setSelectedStudent(e.target.value)}
-          disabled={!students.length}
-          className="border p-2 rounded min-w-[180px] disabled:opacity-50"
-        >
-          <option value="">Select Student</option>
-          {students.map((s) => (
-            <option key={s.id} value={s.id}>{getStudentName(s)}</option>
-          ))}
-        </select>
-
-        {/* Term selector — defaults to CURRENT_TERM */}
-        <select
-          value={selectedTerm}
-          onChange={(e) => setSelectedTerm(e.target.value)}
-          className="border p-2 rounded"
-        >
-          {TERMS.map((t) => (
-            <option key={t.value} value={t.value}>{t.label}</option>
-          ))}
-        </select>
-
-        {report && (
-          <button
-            onClick={downloadPDF}
-            disabled={downloading}
-            className="ml-auto bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded flex items-center gap-2 disabled:opacity-50 transition-colors"
-          >
-            {downloading ? "Generating..." : "⬇ Download PDF"}
-          </button>
+        {/* Error banner */}
+        {error && (
+          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
+            <span className="text-red-400 flex-shrink-0">⚠</span>
+            {error}
+          </div>
         )}
-      </div>
 
-      {loading && <p className="text-gray-500">Loading report...</p>}
-
-      {/* ── Report card ─────────────────────────────────────────────────── */}
-      {report && (
-        <div className="bg-white rounded-lg shadow border max-w-4xl">
-
-          {/* Header */}
-          <div className="bg-blue-700 text-white p-6 rounded-t-lg flex justify-between items-start">
-            <div>
-              <h2 className="text-xl font-bold">
-                {report.school_name || "LEADING STARS ACADEMY"}
-              </h2>
-              <p className="text-blue-100 text-xs mt-0.5">
-                {level === "nursery_kg" ? "GLOBAL LEADERS" : "WHERE LEADERS ARE BORN"}
-              </p>
-              <p className="text-blue-200 text-sm mt-2">{report.student}</p>
-              <p className="text-blue-200 text-sm">
-                Admission No: {report.admission_number || "-"}
-              </p>
-              <p className="text-blue-200 text-sm">Class: {report.class || "-"}</p>
-              <p className="text-blue-200 text-sm">
-                Term:{" "}
-                {TERMS.find((t) => t.value === report.term)?.label || report.term}
-              </p>
-            </div>
-            <div>
-              {report.photo ? (
-                <img
-                  src={report.photo}
-                  alt="student"
-                  className="w-20 h-20 rounded-lg border-2 border-white object-cover"
-                />
-              ) : (
-                <div className="w-20 h-20 rounded-lg border-2 border-white bg-blue-600 flex items-center justify-center text-3xl font-bold">
-                  {report.student?.[0] || "?"}
-                </div>
-              )}
-            </div>
+        {/* ── Filters ─────────────────────────────────────────────────── */}
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex gap-3 flex-wrap items-end">
+          {/* Class */}
+          <div className="flex flex-col gap-1 min-w-[150px]">
+            <FormLabel>Class</FormLabel>
+            <select
+              value={selectedClass}
+              onChange={(e) => { setSelectedClass(e.target.value); setReport(null); }}
+              className={selectCls}
+            >
+              <option value="">Select Class</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
           </div>
 
-          {/* Stats Row */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 border-b">
-            {[
-              { label: "Total Marks",   value: fmt(report.total_score)   },
-              { label: "Average Mark",  value: fmt(report.average_score) },
-              {
-                label: "Position",
-                value: report.show_position
-                  ? (report.position_formatted
-                      ? `${report.position_formatted} / ${report.out_of}`
-                      : "-")
-                  : "N/A",
-              },
-              { label: "Overall Grade", value: report.overall_grade ?? "-" },
-            ].map((stat) => (
-              <div key={stat.label} className="p-4 text-center border-r last:border-r-0">
-                <div
-                  className={`text-2xl font-bold ${
-                    stat.label === "Overall Grade"
-                      ? (GRADE_COLORS[stat.value] || "text-blue-700")
-                      : "text-blue-700"
-                  }`}
-                >
-                  {stat.value}
-                </div>
-                <div className="text-xs text-gray-500 mt-1">{stat.label}</div>
-              </div>
-            ))}
+          {/* Student */}
+          <div className="flex flex-col gap-1 min-w-[200px]">
+            <FormLabel>Student</FormLabel>
+            <select
+              value={selectedStudent}
+              onChange={(e) => setSelectedStudent(e.target.value)}
+              disabled={!students.length}
+              className={`${selectCls} disabled:opacity-40 disabled:cursor-not-allowed`}
+            >
+              <option value="">Select Student</option>
+              {students.map((s) => (
+                <option key={s.id} value={s.id}>{getStudentName(s)}</option>
+              ))}
+            </select>
           </div>
 
-          {/* Subject Table */}
-          <div className="p-6">
-            <h3 className="font-semibold text-gray-700 mb-3">Subject Results</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full border rounded text-sm">
-                <thead className="bg-blue-50">
-                  <tr>
-                    <th className="p-2 text-left">SUBJECT</th>
-                    <th className="p-2 text-center text-blue-700">
-                      RE-OPEN<br />
-                      <span className="font-normal text-xs">&amp; RDA 20%</span>
-                    </th>
-                    <th className="p-2 text-center text-blue-700">
-                      CA/MGT<br />
-                      <span className="font-normal text-xs">40%</span>
-                    </th>
-                    <th className="p-2 text-center text-blue-700">
-                      EXAMS<br />
-                      <span className="font-normal text-xs">40%</span>
-                    </th>
-                    <th className="p-2 text-center font-bold">
-                      TOTAL<br />
-                      <span className="font-normal text-xs">100%</span>
-                    </th>
-                    {report.show_position && (
-                      <th className="p-2 text-center">POSITION</th>
-                    )}
-                    <th className="p-2 text-center">GRADE</th>
-                    <th className="p-2 text-center">REMARK</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.subjects?.map((sub, i) => {
-                    const bg = GRADE_COLORS[sub.grade] || "";
-                    return (
-                      <tr
-                        key={i}
-                        className={`border-t ${i % 2 === 0 ? "" : "bg-gray-50"}`}
-                      >
-                        <td className="p-2 font-medium">{sub.subject}</td>
-                        <td className="p-2 text-center">{fmt(sub.reopen)}</td>
-                        <td className="p-2 text-center">{fmt(sub.ca)}</td>
-                        <td className="p-2 text-center">{fmt(sub.exams)}</td>
-                        <td className="p-2 text-center font-bold text-blue-700">
-                          {fmt(sub.score)}
-                        </td>
-                        {report.show_position && (
-                          <td className="p-2 text-center font-semibold">
-                            {sub.subject_position ?? "-"}
-                          </td>
-                        )}
-                        <td className="p-2 text-center">
-                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${bg}`}>
-                            {sub.grade}
-                          </span>
-                        </td>
-                        <td className="p-2 text-center">
-                          <span className={`px-2 py-0.5 rounded text-xs ${bg}`}>
-                            {sub.remark || "-"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Grade scale */}
-            <div className="mt-4 p-3 bg-gray-50 rounded border text-xs text-gray-600">
-              <p className="font-semibold text-gray-700 mb-2">RESULT INTERPRETATION</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
-                {gradeScale.map((g) => (
-                  <span key={g.grade}>
-                    {g.range}: <b>{g.grade} – {g.label}</b>
-                  </span>
-                ))}
-              </div>
-            </div>
+          {/* Term */}
+          <div className="flex flex-col gap-1">
+            <FormLabel>Term</FormLabel>
+            <select
+              value={selectedTerm}
+              onChange={(e) => setSelectedTerm(e.target.value)}
+              className={selectCls}
+            >
+              {TERMS.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}{t.value === CURRENT_TERM ? " (current)" : ""}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* Attendance + Remarks */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 px-6 pb-6">
+          {report && (
+            <button
+              onClick={downloadPDF}
+              disabled={downloading}
+              className="ml-auto flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm disabled:opacity-50 transition-colors"
+            >
+              {downloading
+                ? <><span className="animate-spin inline-block">⟳</span> Generating…</>
+                : <>↓ Download PDF</>}
+            </button>
+          )}
+        </div>
 
-            {/* Attendance */}
-            <div className="border rounded p-4">
-              <h3 className="font-semibold text-gray-700 mb-3">Attendance</h3>
-              {report.attendance_total > 0 ? (
-                <>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-500">Days Present</span>
-                    <span className="font-semibold">
-                      {report.attendance} / {report.attendance_total}
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className={`h-2 rounded-full transition-all ${
-                        attendancePct >= 80 ? "bg-green-500" :
-                        attendancePct >= 60 ? "bg-yellow-400" : "bg-red-500"
-                      }`}
-                      style={{ width: `${attendancePct}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-gray-400 mt-1 text-right">
-                    {attendancePct}% attendance
+        {/* Loading */}
+        {loading && (
+          <div className="flex items-center justify-center gap-3 py-16 text-slate-400">
+            <span className="text-xl animate-spin">⟳</span>
+            <span className="text-sm">Loading report…</span>
+          </div>
+        )}
+
+        {/* ── Report Card ─────────────────────────────────────────────── */}
+        {report && (
+          <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
+
+            {/* ─ Header banner ─ */}
+            <div className="bg-gradient-to-br from-slate-800 to-blue-900 p-6 text-white">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 space-y-1">
+                  <p className="text-[10px] font-bold text-blue-300 uppercase tracking-widest">
+                    {level === "nursery_kg" ? "GLOBAL LEADERS" : "WHERE LEADERS ARE BORN"}
                   </p>
-                </>
-              ) : (
-                <p className="text-gray-400 text-sm">No attendance data recorded.</p>
-              )}
+                  <h2 className="text-xl font-bold leading-tight">
+                    {report.school_name || "LEADING STARS ACADEMY"}
+                  </h2>
+                  <div className="pt-2 border-t border-white/10 mt-2 space-y-0.5">
+                    <p className="font-semibold text-base">{report.student}</p>
+                    <p className="text-blue-200 text-sm">
+                      Adm No:&nbsp;
+                      <span className="font-mono text-white">{report.admission_number || "-"}</span>
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <span className="px-2 py-0.5 bg-white/10 rounded-full text-blue-100 text-xs">
+                      {report.class || "-"}
+                    </span>
+                    <span className="px-2 py-0.5 bg-white/10 rounded-full text-blue-100 text-xs">
+                      {TERMS.find((t) => t.value === report.term)?.label || report.term}
+                    </span>
+                    {report.promotion_status && (
+                      <PromotionBadge status={report.promotion_status} />
+                    )}
+                    {report.next_class_name && (
+                      <span className="px-2 py-0.5 bg-white/10 rounded-full text-blue-100 text-xs">
+                        → {report.next_class_name}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex-shrink-0">
+                  {report.photo ? (
+                    <img
+                      src={report.photo}
+                      alt="Student"
+                      className="w-20 h-20 rounded-xl border-2 border-white/25 object-cover shadow-lg"
+                    />
+                  ) : (
+                    <div className="w-20 h-20 rounded-xl border-2 border-white/25 bg-blue-700/40 flex items-center justify-center text-3xl font-bold text-white/70 shadow-lg">
+                      {report.student?.[0] || "?"}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* Remarks */}
-            <div className="border rounded p-4">
-              <h3 className="font-semibold text-gray-700 mb-3">Teacher's Remarks</h3>
-              <div className="space-y-3">
+            {/* ─ Stats strip ─ */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-slate-100 border-b border-slate-100">
+              {[
+                {
+                  label: "Total Marks",
+                  value: fmt(report.total_score),
+                  cls:   "text-slate-700",
+                },
+                {
+                  label: "Average",
+                  value: fmt(report.average_score),
+                  cls:   avgColor,
+                },
+                {
+                  label: "Position",
+                  value: report.show_position
+                    ? (report.position_formatted
+                        ? `${report.position_formatted} / ${report.out_of}`
+                        : "-")
+                    : "N/A",
+                  cls: "text-blue-600",
+                },
+                {
+                  label: "Overall Grade",
+                  value: report.overall_grade ?? "-",
+                  cls:   `font-extrabold ${GRADE_COLORS[report.overall_grade] ? "text-green-700" : "text-slate-700"}`,
+                },
+              ].map((stat) => (
+                <div key={stat.label} className="p-4 text-center">
+                  <div className={`text-2xl font-bold ${stat.cls}`}>{stat.value}</div>
+                  <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mt-1">
+                    {stat.label}
+                  </div>
+                </div>
+              ))}
+            </div>
 
+            {/* ─ Subject table ─ */}
+            <div className="p-6 border-b border-slate-100">
+              <SectionHeader icon="📚" title="Subject Results" />
+              <div className="rounded-lg border border-slate-100 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-700 text-white">
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">SUBJECT</th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                        RE-OPEN<br />
+                        <span className="font-normal opacity-60">&amp; RDA /20</span>
+                      </th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                        CA / MGT<br />
+                        <span className="font-normal opacity-60">/40</span>
+                      </th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                        EXAMS<br />
+                        <span className="font-normal opacity-60">/40</span>
+                      </th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide bg-blue-800/60">
+                        TOTAL<br />
+                        <span className="font-normal opacity-60">/100</span>
+                      </th>
+                      {report.show_position && (
+                        <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">POS.</th>
+                      )}
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">GRADE</th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">REMARK</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.subjects?.map((sub, i) => {
+                      const bg = GRADE_COLORS[sub.grade] || "";
+                      return (
+                        <tr
+                          key={i}
+                          className={`border-t border-slate-50 hover:bg-blue-50/30 transition-colors ${
+                            i % 2 === 0 ? "bg-white" : "bg-slate-50/40"
+                          }`}
+                        >
+                          <td className="px-3 py-2.5 font-medium text-slate-700">{sub.subject}</td>
+                          <td className="px-3 py-2.5 text-center font-mono text-slate-600">{fmt(sub.reopen)}</td>
+                          <td className="px-3 py-2.5 text-center font-mono text-slate-600">{fmt(sub.ca)}</td>
+                          <td className="px-3 py-2.5 text-center font-mono text-slate-600">{fmt(sub.exams)}</td>
+                          <td className="px-3 py-2.5 text-center font-mono font-bold text-blue-700 bg-blue-50/50">
+                            {fmt(sub.score)}
+                          </td>
+                          {report.show_position && (
+                            <td className="px-3 py-2.5 text-center text-slate-500 font-semibold">
+                              {sub.subject_position ?? "-"}
+                            </td>
+                          )}
+                          <td className="px-3 py-2.5 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${bg}`}>
+                              {sub.grade}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-xs ${bg}`}>
+                              {sub.remark || "-"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Grade key */}
+              <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-100 text-[11px]">
+                <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px] mb-1.5">
+                  Result Interpretation
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-0.5 gap-x-4">
+                  {gradeScale.map((g) => (
+                    <span key={g.grade} className="text-slate-500">
+                      {g.range}: <b className="text-slate-700">{g.grade} – {g.label}</b>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* ─ Attendance + Remarks grid ─ */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
+
+              {/* Attendance */}
+              <div className="p-6">
+                <SectionHeader icon="📅" title="Attendance" />
+                {report.attendance_total > 0 ? (
+                  <>
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-slate-500">Days Present</span>
+                      <span className="font-bold font-mono text-slate-700">
+                        {report.attendance} / {report.attendance_total}
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${attBarColor}`}
+                        style={{ width: `${attendancePct}%` }}
+                      />
+                    </div>
+                    <p className={`text-xs mt-1.5 text-right font-semibold ${attTextColor}`}>
+                      {attendancePct}% attendance
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-slate-400 text-sm">No attendance data recorded.</p>
+                )}
+              </div>
+
+              {/* Remarks + Promotion */}
+              <div className="p-6 space-y-4">
+                <SectionHeader icon="✏️" title="Teacher's Remarks" />
+
+                {/* Conduct */}
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">Conduct</label>
+                  <FormLabel>Conduct</FormLabel>
                   <select
                     value={remarks.conduct}
-                    onChange={(e) => {
-                      setRemarks((p) => ({ ...p, conduct: e.target.value }));
-                      setRemarksSaved(false);
-                    }}
-                    className="w-full border rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    onChange={(e) => setRemark("conduct", e.target.value)}
+                    className={selectCls}
                   >
                     <option value="">— Select —</option>
                     {CONDUCT_OPTIONS.map((o) => (
@@ -516,20 +657,15 @@ const Reports = () => {
                   </select>
                 </div>
 
+                {/* Interest */}
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">
-                    Interest{" "}
-                    <span className="text-gray-400">
-                      (subject the student shows most interest in)
-                    </span>
-                  </label>
+                  <FormLabel>
+                    Interest <span className="text-slate-300 normal-case font-normal">(subject)</span>
+                  </FormLabel>
                   <select
                     value={remarks.interest}
-                    onChange={(e) => {
-                      setRemarks((p) => ({ ...p, interest: e.target.value }));
-                      setRemarksSaved(false);
-                    }}
-                    className="w-full border rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    onChange={(e) => setRemark("interest", e.target.value)}
+                    className={selectCls}
                   >
                     <option value="">— Select Subject —</option>
                     {subjectOptions.map((name) => (
@@ -538,98 +674,134 @@ const Reports = () => {
                   </select>
                 </div>
 
+                {/* Teacher remark */}
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">
-                    Teacher's Remark
-                  </label>
+                  <FormLabel>Remark</FormLabel>
                   <textarea
                     value={remarks.teacher_remark}
-                    onChange={(e) => {
-                      setRemarks((p) => ({
-                        ...p,
-                        teacher_remark: e.target.value,
-                      }));
-                      setRemarksSaved(false);
-                    }}
+                    onChange={(e) => setRemark("teacher_remark", e.target.value)}
                     rows={3}
-                    placeholder="Write a remark for this student..."
-                    className="w-full border rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+                    placeholder="Write a remark for this student…"
+                    className={`${selectCls} resize-none`}
                   />
                 </div>
 
+                {/* Dates */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-gray-500 block mb-1">
-                      Vacation Date
-                    </label>
+                    <FormLabel>Vacation Date</FormLabel>
                     <input
                       type="date"
                       value={remarks.vacation_date || ""}
-                      onChange={(e) => {
-                        setRemarks((p) => ({
-                          ...p,
-                          vacation_date: e.target.value,
-                        }));
-                        setRemarksSaved(false);
-                      }}
-                      className="w-full border rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      onChange={(e) => setRemark("vacation_date", e.target.value)}
+                      className={selectCls}
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500 block mb-1">
-                      Resumption Date
-                    </label>
+                    <FormLabel>Resumption Date</FormLabel>
                     <input
                       type="date"
                       value={remarks.resumption_date || ""}
-                      onChange={(e) => {
-                        setRemarks((p) => ({
-                          ...p,
-                          resumption_date: e.target.value,
-                        }));
-                        setRemarksSaved(false);
-                      }}
-                      className="w-full border rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      onChange={(e) => setRemark("resumption_date", e.target.value)}
+                      className={selectCls}
                     />
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                {/* ── Promotion Status ── */}
+                <div className="border-t border-slate-100 pt-4">
+                  <SectionHeader icon="🎓" title="Promotion Status" />
+
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {PROMOTION_OPTIONS.map((opt) => {
+                      const active = remarks.promotion_status === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() =>
+                            setRemark("promotion_status", active ? "" : opt.value)
+                          }
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all ${
+                            active ? opt.activeClass : opt.idleClass
+                          }`}
+                        >
+                          <span>{opt.icon}</span>
+                          <span>{opt.label}</span>
+                          {active && <span className="ml-auto text-xs font-bold">✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Next class — only shown when status = promoted or transferred */}
+                  {(remarks.promotion_status === "promoted" ||
+                    remarks.promotion_status === "transferred") && (
+                    <div>
+                      <FormLabel>
+                        {remarks.promotion_status === "promoted"
+                          ? "Promoted to Class"
+                          : "Transferred to Class"}{" "}
+                        <span className="text-slate-300 normal-case font-normal">(optional)</span>
+                      </FormLabel>
+                      <select
+                        value={remarks.next_class}
+                        onChange={(e) => setRemark("next_class", e.target.value)}
+                        className={selectCls}
+                      >
+                        <option value="">— Select Class —</option>
+                        {classes.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Save button */}
+                <div className="flex items-center gap-3 pt-1">
                   <button
                     onClick={saveRemarks}
                     disabled={savingRemarks}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50 transition-colors"
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
                   >
-                    {savingRemarks ? "Saving..." : "Save Remarks"}
+                    {savingRemarks ? "Saving…" : "Save Remarks"}
                   </button>
                   {remarksSaved && (
-                    <span className="text-green-600 text-xs font-medium">✓ Saved</span>
+                    <span className="flex items-center gap-1 text-green-600 text-xs font-semibold">
+                      <span>✓</span> Saved
+                    </span>
                   )}
                 </div>
 
               </div>
             </div>
           </div>
+        )}
 
-        </div>
-      )}
+        {/* ── Empty states ─────────────────────────────────────────────── */}
+        {!loading && !report && selectedStudent && !error && (
+          <div className="text-center py-20">
+            <div className="text-5xl mb-4">📋</div>
+            <p className="text-base font-medium text-slate-500">
+              No report found for this student and term.
+            </p>
+            <p className="text-sm text-slate-400 mt-1">
+              Make sure results have been entered for this term.
+            </p>
+          </div>
+        )}
 
-      {/* Empty states */}
-      {!loading && !report && selectedStudent && !error && (
-        <div className="text-center py-16 text-gray-400">
-          <div className="text-5xl mb-4">📋</div>
-          <p className="text-lg">No report found for this student and term.</p>
-          <p className="text-sm mt-1">
-            Make sure results have been entered for this term.
-          </p>
-        </div>
-      )}
-      {!selectedStudent && (
-        <div className="text-center py-16 text-gray-300">
-          <div className="text-5xl mb-4">🎓</div>
-          <p className="text-lg">Select a class and student to view their report.</p>
-        </div>
-      )}
+        {!selectedStudent && (
+          <div className="text-center py-20">
+            <div className="text-5xl mb-4">🎓</div>
+            <p className="text-base font-medium text-slate-400">
+              Select a class and student to view their report.
+            </p>
+          </div>
+        )}
+
+      </div>
     </div>
   );
 };

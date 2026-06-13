@@ -1,3 +1,13 @@
+"""
+Drop-in replacement for:
+  backend/api/views/report_view.py
+
+Changes vs the previous version:
+  • GET returns promotion_status, next_class (id), next_class_name
+  • PATCH accepts and persists promotion_status + next_class
+  • Grading / attendance / ranking logic is unchanged
+"""
+
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -88,7 +98,7 @@ class StudentReportView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    # ── GET ──────────────────────────────────────────────────────────────
+    # ── GET ──────────────────────────────────────────────────────────────────
 
     def get(self, request, student_id):
         term = request.query_params.get("term")
@@ -115,7 +125,13 @@ class StudentReportView(APIView):
             .select_related("subject")
         )
 
-        report = Report.objects.filter(student=student, term=term, year=year).first()
+        # Eagerly fetch next_class so we get name in one query
+        report = (
+            Report.objects
+            .select_related("next_class")
+            .filter(student=student, term=term, year=year)
+            .first()
+        )
 
         subjects    = []
         total_score = 0
@@ -155,7 +171,6 @@ class StudentReportView(APIView):
         # Class ranking
         class_students = Student.objects.filter(school_class=student.school_class)
         student_totals = []
-
         for s in class_students:
             s_results = Result.objects.filter(student=s, term=term, year=year)
             student_totals.append({
@@ -196,13 +211,18 @@ class StudentReportView(APIView):
             "attendance_percent": round((present_days / total_days) * 100) if total_days else 0,
 
             # Remarks
-            "conduct":          report.conduct          if report else None,
-            "interest":         report.interest         if report else None,
-            "teacher_remark":   report.teacher_remark   if report else None,
+            "conduct":          report.conduct         if report else None,
+            "interest":         report.interest        if report else None,
+            "teacher_remark":   report.teacher_remark  if report else None,
 
             # Dates
             "vacation_date":    str(report.vacation_date)   if report and report.vacation_date   else None,
             "resumption_date":  str(report.resumption_date) if report and report.resumption_date else None,
+
+            # Promotion
+            "promotion_status": report.promotion_status           if report else None,
+            "next_class":       report.next_class_id              if report else None,
+            "next_class_name":  report.next_class.name            if report and report.next_class else None,
         })
 
     # ── PATCH ─────────────────────────────────────────────────────────────
@@ -223,14 +243,14 @@ class StudentReportView(APIView):
         else:
             year = get_current_year()
 
-        # year is part of unique_together — must be in the lookup, not just defaults
+        # year is part of unique_together — include in lookup, not just defaults
         report, _ = Report.objects.get_or_create(
             student=student,
             term=term,
             year=year,
             defaults={
                 "attendance":       0,
-                "attendance_total": 1,  # must be >= 1 per model validator
+                "attendance_total": 1,
             },
         )
 
@@ -240,19 +260,30 @@ class StudentReportView(APIView):
             "teacher_remark",
             "vacation_date",
             "resumption_date",
+            "promotion_status",
         ]
         changed = []
 
         for field in updatable:
             if field in request.data:
                 value = request.data[field]
-                if field in ("vacation_date", "resumption_date") and value == "":
+                # Coerce empty strings → None for date + nullable char fields
+                if field in ("vacation_date", "resumption_date", "promotion_status") and value == "":
                     value = None
                 setattr(report, field, value)
                 changed.append(field)
 
+        # next_class is a FK — handle separately
+        if "next_class" in request.data:
+            nc = request.data["next_class"]
+            report.next_class_id = int(nc) if nc else None
+            changed.append("next_class")
+
         if changed:
             report.save(update_fields=changed)
+
+        # Refresh so we can return the related name
+        report.refresh_from_db()
 
         return Response({
             "detail":           "Saved.",
@@ -261,4 +292,7 @@ class StudentReportView(APIView):
             "teacher_remark":   report.teacher_remark,
             "vacation_date":    str(report.vacation_date)   if report.vacation_date   else None,
             "resumption_date":  str(report.resumption_date) if report.resumption_date else None,
+            "promotion_status": report.promotion_status,
+            "next_class":       report.next_class_id,
+            "next_class_name":  report.next_class.name if report.next_class else None,
         })
