@@ -242,7 +242,7 @@ class StudentReportPDFView(APIView):
 
         student = get_object_or_404(Student, id=student_id)
         results = Result.objects.filter(student=student, term=term).select_related("subject")
-        report  = Report.objects.filter(student=student, term=term).first()
+        report  = Report.objects.select_related("next_class").filter(student=student, term=term).first()
 
         level         = getattr(student.school_class, "level", "basic_7_9") if student.school_class else "basic_7_9"
         thresholds    = get_thresholds(level)
@@ -292,8 +292,10 @@ class StudentReportPDFView(APIView):
             None,
         ) if show_position else None
 
-        vacation_date   = getattr(report, "vacation_date",   None) if report else None
-        resumption_date = getattr(report, "resumption_date", None) if report else None
+        vacation_date    = getattr(report, "vacation_date", None) if report else None
+        resumption_date  = getattr(report, "resumption_date", None) if report else None
+        promotion_status = getattr(report, "promotion_status", None) if report else None
+        next_class_name  = getattr(report.next_class, "name", None) if report and report.next_class else None
 
         # ── Build PDF ──────────────────────────────────────────────────────
         buffer = BytesIO()
@@ -364,6 +366,9 @@ class StudentReportPDFView(APIView):
 
         avg_color = GREEN if average >= 60 else (GOLD if average >= 45 else RED)
 
+        promotion_label = promotion_status.title() if promotion_status else "N/A"
+        next_class_label = next_class_name or "N/A"
+
         info_rows = [
             [
                 para(f"<b>NAME:</b>  {student.full_name}", 9),
@@ -380,6 +385,10 @@ class StudentReportPDFView(APIView):
             [
                 para(f"<b>ADMISSION NO:</b>  {student.admission_number}", 9),
                 para(position_text, 9, color=BLUE2),
+            ],
+            [
+                para(f"<b>PROMOTION STATUS:</b>  {promotion_label}", 9),
+                para(f"<b>NEXT CLASS:</b>  {next_class_label}", 9, color=BLUE2),
             ],
         ]
         info_table = Table(info_rows, colWidths=[93*mm, 93*mm])

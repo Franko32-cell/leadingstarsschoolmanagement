@@ -118,6 +118,29 @@ class Report(models.Model):
     vacation_date   = models.DateField(null=True, blank=True)
     resumption_date = models.DateField(null=True, blank=True)
 
+    # Promotion / progression metadata used by the report page and PDF
+    promotion_status = models.CharField(
+        max_length=20,
+        choices=[
+            ("promoted", "Promoted"),
+            ("repeated", "Repeated"),
+            ("transferred", "Transferred"),
+            ("withdrawn", "Withdrawn"),
+        ],
+        null=True,
+        blank=True,
+        default=None,
+        help_text="End-of-term progression decision for this student.",
+    )
+    next_class = models.ForeignKey(
+        SchoolClass,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="incoming_promotions",
+        help_text="Class this student will join next term.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
