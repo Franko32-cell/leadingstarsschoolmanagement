@@ -7,6 +7,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.conf import settings
 from django.db.utils import ProgrammingError
+from django.utils import timezone
 
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle,
@@ -241,16 +242,26 @@ class StudentReportPDFView(APIView):
             from rest_framework.response import Response
             return Response({"error": "term is required"}, status=400)
 
+        year = request.query_params.get("year")
+        if year:
+            try:
+                year = int(year)
+            except (TypeError, ValueError):
+                from rest_framework.response import Response
+                return Response({"error": "year must be a valid integer"}, status=400)
+        else:
+            year = getattr(settings, "CURRENT_YEAR", timezone.now().year)
+
         student = get_object_or_404(Student, id=student_id)
-        results = Result.objects.filter(student=student, term=term).select_related("subject")
+        results = Result.objects.filter(student=student, term=term, year=year).select_related("subject")
 
         try:
-            report = Report.objects.select_related("next_class").filter(student=student, term=term).first()
+            report = Report.objects.select_related("next_class").filter(student=student, term=term, year=year).first()
             has_extended_report_fields = True
         except ProgrammingError:
             report = (
                 Report.objects
-                .filter(student=student, term=term)
+                .filter(student=student, term=term, year=year)
                 .only(
                     "id", "student_id", "term", "year",
                     "conduct", "interest", "teacher_remark",
@@ -267,7 +278,7 @@ class StudentReportPDFView(APIView):
         school_motto  = SCHOOL_MOTTOS.get(level, "WHERE LEADERS ARE BORN")
         interp_rows   = INTERP_ROWS_B79 if level == "basic_7_9" else INTERP_ROWS_B16
 
-        term_attendance = Attendance.objects.filter(student=student, term=term)
+        term_attendance = Attendance.objects.filter(student=student, term=term, year=year)
         total_days      = term_attendance.count()
         present_days    = term_attendance.filter(status__in=["present", "late"]).count()
         att_percent     = round((present_days / total_days) * 100) if total_days else 0
@@ -297,7 +308,7 @@ class StudentReportPDFView(APIView):
         class_students = Student.objects.filter(school_class=student.school_class)
         student_totals = []
         for s in class_students:
-            s_res = Result.objects.filter(student=s, term=term)
+            s_res = Result.objects.filter(student=s, term=term, year=year)
             student_totals.append({
                 "student_id": s.id,
                 "total":      sum(r.score or 0 for r in s_res),
