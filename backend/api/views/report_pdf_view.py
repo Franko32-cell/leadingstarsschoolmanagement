@@ -325,10 +325,12 @@ class StudentReportPDFView(APIView):
             ranked   = rank_students(student.school_class, term, year)
             position = get_student_position(ranked, student.id)
             out_of   = len(ranked)
+            show_position = position is not None
         else:
             ranked   = []
             position = None
             out_of   = 0
+            show_position = False
 
         # ── Promotion fields ───────────────────────────────────────────────
         vacation_date    = getattr(report, "vacation_date",    None) if report else None

@@ -95,3 +95,47 @@ class ResultsApiTests(TestCase):
         self.assertEqual(response.data["attendance_total"], 1)
         self.assertEqual(response.data["attendance"], 1)
         self.assertEqual(response.data["total_score"], 24.0)
+
+    def test_report_endpoint_returns_position_and_summary(self):
+        student2 = Student.objects.create(
+            user=get_user_model().objects.create_user(username="tester2", password="pass"),
+            admission_number="AD002",
+            first_name="John",
+            last_name="Smith",
+            school_class=self.school_class,
+        )
+        subject2 = Subject.objects.create(name="English", school_class=self.school_class)
+
+        Result.objects.create(
+            student=self.student,
+            subject=self.subject,
+            school_class=self.school_class,
+            term="term3",
+            year=settings.CURRENT_YEAR,
+            reopen=10,
+            ca=10,
+            exams=10,
+        )
+        Result.objects.create(
+            student=student2,
+            subject=subject2,
+            school_class=self.school_class,
+            term="term3",
+            year=settings.CURRENT_YEAR,
+            reopen=5,
+            ca=5,
+            exams=5,
+        )
+
+        response = self.client.get(
+            f"/api/report/student/{self.student.id}/",
+            {"term": "term3", "year": settings.CURRENT_YEAR},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["show_position"])
+        self.assertEqual(response.data["position"], 1)
+        self.assertEqual(response.data["position_formatted"], "1st")
+        self.assertEqual(response.data["out_of"], 2)
+        self.assertEqual(response.data["average_score"], 30.0)
+        self.assertEqual(response.data["overall_grade"], "9")

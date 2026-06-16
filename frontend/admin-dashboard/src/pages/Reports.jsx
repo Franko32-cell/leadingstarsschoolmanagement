@@ -595,7 +595,11 @@ const Reports = () => {
                 {
                   label: "Position",
                   value: report.show_position
-                    ? (report.position_formatted ? `${report.position_formatted} / ${report.out_of}` : "-")
+                    ? (report.position_formatted
+                        ? `${report.position_formatted} / ${report.out_of}`
+                        : report.position != null
+                          ? `${report.position} / ${report.out_of}`
+                          : "-")
                     : "N/A",
                   cls: "text-blue-600",
                 },

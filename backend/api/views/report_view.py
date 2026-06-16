@@ -360,10 +360,12 @@ class StudentReportView(APIView):
             ranked   = rank_students(student.school_class, term, year)
             position = get_student_position(ranked, student.id)
             out_of   = len(ranked)
+            show_position = position is not None
         else:
             ranked   = []
             position = None
             out_of   = None
+            show_position = False
 
         # ── Promotion fields ──────────────────────────────────────────────
         promotion_status = None
@@ -393,7 +395,7 @@ class StudentReportView(APIView):
             "subjects_failed":    failed,
 
             "position":           position,
-            "position_formatted": fmt_pos(position) if position else None,
+            "position_formatted": fmt_pos(position) if position is not None else None,
             "out_of":             out_of,
 
             "attendance":         present_days,
