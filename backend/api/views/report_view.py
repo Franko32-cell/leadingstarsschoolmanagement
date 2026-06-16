@@ -15,8 +15,8 @@ Fixes applied vs previous version:
 """
 
 from django.conf import settings
+from django.db import ProgrammingError, connection
 from django.db.models import Count, Q
-from django.db.utils import ProgrammingError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -97,6 +97,61 @@ def _fetch_report(student, term: str, year: int):
         raise
 
 
+def _insert_minimal_report(student, term: str, year: int):
+    table = connection.ops.quote_name(Report._meta.db_table)
+    columns = [
+        connection.ops.quote_name("student_id"),
+        connection.ops.quote_name("term"),
+        connection.ops.quote_name("year"),
+        connection.ops.quote_name("attendance"),
+        connection.ops.quote_name("attendance_total"),
+        connection.ops.quote_name("interest"),
+        connection.ops.quote_name("conduct"),
+        connection.ops.quote_name("teacher_remark"),
+        connection.ops.quote_name("vacation_date"),
+        connection.ops.quote_name("resumption_date"),
+        connection.ops.quote_name("created_at"),
+    ]
+    values = [
+        student.id,
+        term,
+        year,
+        0,
+        1,
+        "",
+        "",
+        "",
+        None,
+        None,
+        timezone.now(),
+    ]
+    placeholders = ", ".join(["%s"] * len(values))
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})",
+            values,
+        )
+
+    return Report.objects.filter(
+        student=student,
+        term=term,
+        year=year,
+    ).only(
+        "id",
+        "student",
+        "term",
+        "year",
+        "attendance",
+        "attendance_total",
+        "interest",
+        "conduct",
+        "teacher_remark",
+        "vacation_date",
+        "resumption_date",
+    ).first()
+
+
 def _create_report(student, term: str, year: int, has_promo: bool):
     base_fields = [
         "id",
@@ -131,13 +186,7 @@ def _create_report(student, term: str, year: int, has_promo: bool):
                     year=year,
                 ).only(*base_fields).first()
                 if not report:
-                    report = Report.objects.create(
-                        student=student,
-                        term=term,
-                        year=year,
-                        attendance=0,
-                        attendance_total=1,
-                    )
+                    report = _insert_minimal_report(student, term, year)
                 return report, False
             raise
 
@@ -147,13 +196,7 @@ def _create_report(student, term: str, year: int, has_promo: bool):
         year=year,
     ).only(*base_fields).first()
     if not report:
-        report = Report.objects.create(
-            student=student,
-            term=term,
-            year=year,
-            attendance=0,
-            attendance_total=1,
-        )
+        report = _insert_minimal_report(student, term, year)
     return report, False
 
 
