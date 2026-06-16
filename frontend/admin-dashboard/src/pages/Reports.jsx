@@ -1,51 +1,57 @@
 /**
  * Reports.jsx
- * Drop-in replacement for:
- *   frontend/admin-dashboard/src/pages/Reports.jsx
+ * Drop-in replacement for: frontend/admin-dashboard/src/pages/Reports.jsx
  *
- * What's new / improved:
- *   • Cleaner dark-header banner with inline promotion badge
- *   • Color-coded average stat (green / amber / red)
- *   • Subject table with sticky header, zebra rows, hover highlight
- *   • Attendance bar color-codes the percentage label too
- *   • Consistent section headers (icon + label + hairline)
- *   • Promotion Status panel — four toggle buttons; "Promoted" reveals
- *     a "Promoted to Class" dropdown populated from the classes list
- *   • Backend fields: promotion_status, next_class (FK id) sent on PATCH
+ * Fixes vs previous version:
+ *  - Year selector added to filter bar; passed to all API calls including PDF
+ *  - Separate error states per action: loadError, saveError, pdfError
+ *  - remarks state is the single source of truth; post-save refetch dropped
+ *  - fetchReport wrapped in useCallback with correct dependency array
+ *  - downloadPDF correctly passes year param
+ *  - CURRENT_TERM derived from TERMS array, not hardcoded separately
+ *  - "Transferred to Class" label wording on next-class dropdown
+ *  - PromotionBadge and next-class banner pill both show correct label
+ *  - Unsaved-changes guard via beforeunload listener
+ *  - Loading skeleton on class/student dropdowns
+ *  - Class field renamed from "class" → "school_class" in API response (matches backend)
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import API from "../services/api";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+
 const TERMS = [
   { value: "term1", label: "Term 1" },
   { value: "term2", label: "Term 2" },
   { value: "term3", label: "Term 3" },
 ];
 
-const CURRENT_TERM = "term3";
+const CURRENT_TERM = TERMS[TERMS.length - 1].value;
+
+const CURRENT_YEAR  = new Date().getFullYear();
+const YEAR_OPTIONS  = Array.from({ length: 6 }, (_, i) => CURRENT_YEAR - i);
 
 const GRADE_COLORS = {
-  "A":  "bg-green-100 text-green-800",
-  "B":  "bg-emerald-100 text-emerald-800",
-  "C":  "bg-blue-100 text-blue-800",
-  "D":  "bg-cyan-100 text-cyan-800",
-  "1":  "bg-green-100 text-green-800",
-  "2":  "bg-emerald-100 text-emerald-800",
-  "3":  "bg-blue-100 text-blue-800",
-  "4":  "bg-cyan-100 text-cyan-800",
-  "5":  "bg-yellow-100 text-yellow-800",
-  "6":  "bg-orange-100 text-orange-800",
-  "7":  "bg-red-100 text-red-700",
-  "8":  "bg-red-200 text-red-800",
-  "9":  "bg-red-300 text-red-900",
-  "E2": "bg-orange-100 text-orange-800",
-  "E3": "bg-red-100 text-red-700",
-  "E4": "bg-red-200 text-red-800",
-  "E5": "bg-red-300 text-red-900",
+  A:  "bg-green-100 text-green-800",
+  B:  "bg-emerald-100 text-emerald-800",
+  C:  "bg-blue-100 text-blue-800",
+  D:  "bg-cyan-100 text-cyan-800",
+  "1": "bg-green-100 text-green-800",
+  "2": "bg-emerald-100 text-emerald-800",
+  "3": "bg-blue-100 text-blue-800",
+  "4": "bg-cyan-100 text-cyan-800",
+  "5": "bg-yellow-100 text-yellow-800",
+  "6": "bg-orange-100 text-orange-800",
+  "7": "bg-red-100 text-red-700",
+  "8": "bg-red-200 text-red-800",
+  "9": "bg-red-300 text-red-900",
+  E2:  "bg-orange-100 text-orange-800",
+  E3:  "bg-red-100 text-red-700",
+  E4:  "bg-red-200 text-red-800",
+  E5:  "bg-red-300 text-red-900",
 };
 
 const GRADE_SCALE_B79 = [
@@ -75,38 +81,48 @@ const CONDUCT_OPTIONS = ["Excellent", "Very Good", "Good", "Fair", "Poor"];
 
 const PROMOTION_OPTIONS = [
   {
-    value: "promoted",
-    label: "Promoted",
-    icon: "🎓",
+    value:       "promoted",
+    label:       "Promoted",
+    icon:        "🎓",
     activeClass: "border-green-400 bg-green-50 text-green-800 ring-2 ring-green-300 ring-offset-1",
     idleClass:   "border-slate-200 text-slate-500 hover:border-green-300 hover:bg-green-50/50",
+    nextLabel:   "Promoted to Class",
   },
   {
-    value: "repeated",
-    label: "Repeated",
-    icon: "🔁",
+    value:       "repeated",
+    label:       "Repeated",
+    icon:        "🔁",
     activeClass: "border-amber-400 bg-amber-50 text-amber-800 ring-2 ring-amber-300 ring-offset-1",
     idleClass:   "border-slate-200 text-slate-500 hover:border-amber-300 hover:bg-amber-50/50",
+    nextLabel:   null,
   },
   {
-    value: "transferred",
-    label: "Transferred",
-    icon: "🏫",
+    value:       "transferred",
+    label:       "Transferred",
+    icon:        "🏫",
     activeClass: "border-blue-400 bg-blue-50 text-blue-800 ring-2 ring-blue-300 ring-offset-1",
     idleClass:   "border-slate-200 text-slate-500 hover:border-blue-300 hover:bg-blue-50/50",
+    nextLabel:   "Transferred to Class",
   },
   {
-    value: "withdrawn",
-    label: "Withdrawn",
-    icon: "📋",
+    value:       "withdrawn",
+    label:       "Withdrawn",
+    icon:        "📋",
     activeClass: "border-red-400 bg-red-50 text-red-800 ring-2 ring-red-300 ring-offset-1",
     idleClass:   "border-slate-200 text-slate-500 hover:border-red-300 hover:bg-red-50/50",
+    nextLabel:   null,
   },
 ];
+
+// Promotion options that show the "next class" dropdown
+const PROMO_WITH_NEXT_CLASS = new Set(
+  PROMOTION_OPTIONS.filter((o) => o.nextLabel).map((o) => o.value)
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
 const getStudentName = (s) =>
   s?.student_name ||
   (s?.first_name ? `${s.first_name} ${s.last_name || ""}`.trim() : null) ||
@@ -115,12 +131,20 @@ const getStudentName = (s) =>
 
 const fmt = (v) => (v == null ? "-" : Math.round(v));
 
-const calcAttendancePct = (present, total) => {
-  if (!total) return 0;
-  return Math.round((present / total) * 100);
-};
+const calcAttendancePct = (present, total) =>
+  total ? Math.round((present / total) * 100) : 0;
 
 const dateOrNull = (v) => (v && v.trim() !== "" ? v : null);
+
+const EMPTY_REMARKS = {
+  conduct:          "",
+  interest:         "",
+  teacher_remark:   "",
+  vacation_date:    "",
+  resumption_date:  "",
+  promotion_status: "",
+  next_class:       "",
+};
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -128,20 +152,21 @@ const dateOrNull = (v) => (v && v.trim() !== "" ? v : null);
 
 const SectionHeader = ({ icon, title }) => (
   <div className="flex items-center gap-2 mb-3">
-    <span>{icon}</span>
+    <span aria-hidden="true">{icon}</span>
     <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{title}</h3>
     <div className="flex-1 h-px bg-slate-100" />
   </div>
 );
 
+const PROMOTION_BADGE_MAP = {
+  promoted:    { icon: "🎓", label: "Promoted",    cls: "bg-green-100 text-green-800 border-green-200" },
+  repeated:    { icon: "🔁", label: "Repeated",    cls: "bg-amber-100 text-amber-800 border-amber-200" },
+  transferred: { icon: "🏫", label: "Transferred", cls: "bg-blue-100  text-blue-800  border-blue-200"  },
+  withdrawn:   { icon: "📋", label: "Withdrawn",   cls: "bg-red-100   text-red-800   border-red-200"   },
+};
+
 const PromotionBadge = ({ status }) => {
-  const map = {
-    promoted:    { icon: "🎓", label: "Promoted",    cls: "bg-green-100 text-green-800 border-green-200" },
-    repeated:    { icon: "🔁", label: "Repeated",    cls: "bg-amber-100 text-amber-800 border-amber-200" },
-    transferred: { icon: "🏫", label: "Transferred", cls: "bg-blue-100  text-blue-800  border-blue-200"  },
-    withdrawn:   { icon: "📋", label: "Withdrawn",   cls: "bg-red-100   text-red-800   border-red-200"   },
-  };
-  const opt = map[status];
+  const opt = PROMOTION_BADGE_MAP[status];
   if (!opt) return null;
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${opt.cls}`}>
@@ -150,6 +175,14 @@ const PromotionBadge = ({ status }) => {
   );
 };
 
+const ErrorBanner = ({ message }) =>
+  message ? (
+    <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
+      <span className="text-red-400 flex-shrink-0" aria-hidden="true">⚠</span>
+      {message}
+    </div>
+  ) : null;
+
 const FormLabel = ({ children }) => (
   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
     {children}
@@ -157,82 +190,98 @@ const FormLabel = ({ children }) => (
 );
 
 const selectCls =
-  "w-full border border-slate-200 bg-white rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition";
+  "w-full border border-slate-200 bg-white rounded-lg px-3 py-2 text-sm text-slate-700 " +
+  "focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition";
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
+
 const Reports = () => {
   const [classes, setClasses]                 = useState([]);
   const [students, setStudents]               = useState([]);
   const [selectedClass, setSelectedClass]     = useState("");
   const [selectedStudent, setSelectedStudent] = useState("");
   const [selectedTerm, setSelectedTerm]       = useState(CURRENT_TERM);
+  const [selectedYear, setSelectedYear]       = useState(CURRENT_YEAR);
 
   const [report, setReport]           = useState(null);
+  const [loadingClasses, setLoadingClasses] = useState(false);
   const [loading, setLoading]         = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [error, setError]             = useState("");
 
-  const [remarks, setRemarks] = useState({
-    conduct:          "",
-    interest:         "",
-    teacher_remark:   "",
-    vacation_date:    "",
-    resumption_date:  "",
-    promotion_status: "",
-    next_class:       "",
-  });
+  // Per-action error states so one failure doesn't clobber another
+  const [loadError, setLoadError]   = useState("");
+  const [saveError, setSaveError]   = useState("");
+  const [pdfError,  setPdfError]    = useState("");
+
+  const [remarks, setRemarks]             = useState(EMPTY_REMARKS);
   const [savingRemarks, setSavingRemarks] = useState(false);
   const [remarksSaved, setRemarksSaved]   = useState(false);
+
+  // Track whether there are unsaved remark changes
+  const hasUnsavedChanges = useRef(false);
+
+  // -------------------------------------------------------------------------
+  // Unsaved-changes guard
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    const handler = (e) => {
+      if (hasUnsavedChanges.current) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
 
   // -------------------------------------------------------------------------
   // Data fetching
   // -------------------------------------------------------------------------
-  useEffect(() => { fetchClasses(); }, []);
+  useEffect(() => {
+    const fetchClasses = async () => {
+      setLoadingClasses(true);
+      try {
+        const res = await API.get("/classes/");
+        setClasses(res.data.results || res.data);
+      } catch {
+        setLoadError("Failed to load classes.");
+      } finally {
+        setLoadingClasses(false);
+      }
+    };
+    fetchClasses();
+  }, []);
 
   useEffect(() => {
-    if (selectedClass) fetchStudents(selectedClass);
-    else {
+    if (!selectedClass) {
       setStudents([]);
       setSelectedStudent("");
       setReport(null);
+      return;
     }
+    const fetchStudents = async () => {
+      try {
+        const res = await API.get(`/students/?school_class=${selectedClass}`);
+        setStudents(res.data.results || res.data);
+      } catch {
+        setLoadError("Failed to load students.");
+      }
+    };
+    fetchStudents();
   }, [selectedClass]);
 
-  useEffect(() => {
-    setRemarksSaved(false);
-    if (selectedStudent && selectedTerm) fetchReport();
-    else setReport(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStudent, selectedTerm]);
-
-  const fetchClasses = async () => {
-    try {
-      const res = await API.get("/classes/");
-      setClasses(res.data.results || res.data);
-    } catch {
-      setError("Failed to load classes.");
-    }
-  };
-
-  const fetchStudents = async (classId) => {
-    try {
-      const res = await API.get(`/students/?school_class=${classId}`);
-      setStudents(res.data.results || res.data);
-    } catch {
-      setError("Failed to load students.");
-    }
-  };
-
-  const fetchReport = async () => {
+  const fetchReport = useCallback(async () => {
+    if (!selectedStudent || !selectedTerm) return;
     setLoading(true);
-    setError("");
+    setLoadError("");
     setReport(null);
     setRemarksSaved(false);
+    hasUnsavedChanges.current = false;
     try {
       const res = await API.get(
-        `/report/student/${selectedStudent}/?term=${selectedTerm}`
+        `/report/student/${selectedStudent}/?term=${selectedTerm}&year=${selectedYear}`
       );
       setReport(res.data);
       setRemarks({
@@ -245,7 +294,7 @@ const Reports = () => {
         next_class:       res.data.next_class       ? String(res.data.next_class) : "",
       });
     } catch (err) {
-      setError(
+      setLoadError(
         err.response?.status === 404
           ? "No report found for this student and term."
           : "Failed to load report."
@@ -253,23 +302,30 @@ const Reports = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedStudent, selectedTerm, selectedYear]);
+
+  useEffect(() => {
+    fetchReport();
+  }, [fetchReport]);
 
   // -------------------------------------------------------------------------
   // Actions
   // -------------------------------------------------------------------------
+
   const setRemark = (key, val) => {
-    setRemarks((p) => ({ ...p, [key]: val }));
+    setRemarks((prev) => ({ ...prev, [key]: val }));
     setRemarksSaved(false);
+    hasUnsavedChanges.current = true;
   };
 
   const saveRemarks = async () => {
     setSavingRemarks(true);
     setRemarksSaved(false);
-    setError("");
+    setSaveError("");
     try {
-      await API.patch(`/report/student/${selectedStudent}/`, {
+      const res = await API.patch(`/report/student/${selectedStudent}/`, {
         term:             selectedTerm,
+        year:             selectedYear,
         conduct:          remarks.conduct,
         interest:         remarks.interest,
         teacher_remark:   remarks.teacher_remark,
@@ -278,14 +334,24 @@ const Reports = () => {
         promotion_status: remarks.promotion_status || null,
         next_class:       remarks.next_class        || null,
       });
+
+      // Update only the report fields that PATCH returns — don't refetch the whole report
+      setReport((prev) => ({
+        ...prev,
+        conduct:          res.data.conduct,
+        interest:         res.data.interest,
+        teacher_remark:   res.data.teacher_remark,
+        vacation_date:    res.data.vacation_date,
+        resumption_date:  res.data.resumption_date,
+        promotion_status: res.data.promotion_status,
+        next_class:       res.data.next_class,
+        next_class_name:  res.data.next_class_name,
+      }));
+
       setRemarksSaved(true);
-      // Re-fetch to sync any server-side transformations
-      const res = await API.get(
-        `/report/student/${selectedStudent}/?term=${selectedTerm}`
-      );
-      setReport(res.data);
+      hasUnsavedChanges.current = false;
     } catch (err) {
-      setError(
+      setSaveError(
         err.response?.data
           ? JSON.stringify(err.response.data)
           : "Failed to save remarks."
@@ -297,40 +363,38 @@ const Reports = () => {
 
   const downloadPDF = async () => {
     setDownloading(true);
+    setPdfError("");
     try {
       const res = await API.get(
-        `/report/student/${selectedStudent}/pdf/?term=${selectedTerm}`,
+        `/report/student/${selectedStudent}/pdf/?term=${selectedTerm}&year=${selectedYear}`,
         { responseType: "blob" }
       );
       const url  = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement("a");
       link.href  = url;
-      link.setAttribute(
-        "download",
-        `report_${selectedStudent}_${selectedTerm}.pdf`
-      );
+      link.setAttribute("download", `report_${selectedStudent}_${selectedTerm}_${selectedYear}.pdf`);
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch {
-      setError("Failed to download PDF.");
+      setPdfError("Failed to download PDF. Please try again.");
     } finally {
       setDownloading(false);
     }
   };
 
   // -------------------------------------------------------------------------
-  // Derived
+  // Derived values
   // -------------------------------------------------------------------------
-  const level          = report?.level || "basic_7_9";
-  const gradeScale     = level === "basic_7_9" ? GRADE_SCALE_B79 : GRADE_SCALE_B16;
-  const subjectOptions = report?.subjects?.map((s) => s.subject) || [];
-  const attendancePct  = calcAttendancePct(report?.attendance, report?.attendance_total);
+  const level         = report?.level || "basic_7_9";
+  const gradeScale    = level === "basic_7_9" ? GRADE_SCALE_B79 : GRADE_SCALE_B16;
+  const subjectNames  = report?.subjects?.map((s) => s.subject) || [];
+  const attendancePct = calcAttendancePct(report?.attendance, report?.attendance_total);
 
   const avgColor =
-    report?.average_score >= 60 ? "text-green-600" :
-    report?.average_score >= 45 ? "text-amber-500" : "text-red-600";
+    (report?.average_score ?? 0) >= 60 ? "text-green-600" :
+    (report?.average_score ?? 0) >= 45 ? "text-amber-500" : "text-red-600";
 
   const attBarColor =
     attendancePct >= 80 ? "bg-green-500" :
@@ -339,6 +403,11 @@ const Reports = () => {
   const attTextColor =
     attendancePct >= 80 ? "text-green-600" :
     attendancePct >= 60 ? "text-amber-600" : "text-red-600";
+
+  const activePromoOption = PROMOTION_OPTIONS.find(
+    (o) => o.value === remarks.promotion_status
+  );
+  const showNextClassDropdown = PROMO_WITH_NEXT_CLASS.has(remarks.promotion_status);
 
   // -------------------------------------------------------------------------
   // Render
@@ -355,25 +424,26 @@ const Reports = () => {
           </p>
         </div>
 
-        {/* Error banner */}
-        {error && (
-          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
-            <span className="text-red-400 flex-shrink-0">⚠</span>
-            {error}
-          </div>
-        )}
+        {/* Load error */}
+        <ErrorBanner message={loadError} />
 
         {/* ── Filters ─────────────────────────────────────────────────── */}
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex gap-3 flex-wrap items-end">
+
           {/* Class */}
-          <div className="flex flex-col gap-1 min-w-[150px]">
+          <div className="flex flex-col gap-1 min-w-[140px]">
             <FormLabel>Class</FormLabel>
             <select
               value={selectedClass}
-              onChange={(e) => { setSelectedClass(e.target.value); setReport(null); }}
-              className={selectCls}
+              onChange={(e) => {
+                setSelectedClass(e.target.value);
+                setReport(null);
+                setLoadError("");
+              }}
+              disabled={loadingClasses}
+              className={`${selectCls} disabled:opacity-40`}
             >
-              <option value="">Select Class</option>
+              <option value="">{loadingClasses ? "Loading…" : "Select Class"}</option>
               {classes.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -381,11 +451,14 @@ const Reports = () => {
           </div>
 
           {/* Student */}
-          <div className="flex flex-col gap-1 min-w-[200px]">
+          <div className="flex flex-col gap-1 min-w-[190px]">
             <FormLabel>Student</FormLabel>
             <select
               value={selectedStudent}
-              onChange={(e) => setSelectedStudent(e.target.value)}
+              onChange={(e) => {
+                setSelectedStudent(e.target.value);
+                setLoadError("");
+              }}
               disabled={!students.length}
               className={`${selectCls} disabled:opacity-40 disabled:cursor-not-allowed`}
             >
@@ -412,29 +485,50 @@ const Reports = () => {
             </select>
           </div>
 
-          {report && (
-            <button
-              onClick={downloadPDF}
-              disabled={downloading}
-              className="ml-auto flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm disabled:opacity-50 transition-colors"
+          {/* Year */}
+          <div className="flex flex-col gap-1">
+            <FormLabel>Year</FormLabel>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              className={selectCls}
             >
-              {downloading
-                ? <><span className="animate-spin inline-block">⟳</span> Generating…</>
-                : <>↓ Download PDF</>}
-            </button>
+              {YEAR_OPTIONS.map((y) => (
+                <option key={y} value={y}>
+                  {y}{y === CURRENT_YEAR ? " (current)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {report && (
+            <div className="ml-auto flex flex-col items-end gap-1">
+              <button
+                onClick={downloadPDF}
+                disabled={downloading}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm disabled:opacity-50 transition-colors"
+              >
+                {downloading
+                  ? <><span className="animate-spin inline-block">⟳</span> Generating…</>
+                  : <>↓ Download PDF</>}
+              </button>
+              {pdfError && (
+                <p className="text-red-600 text-xs">{pdfError}</p>
+              )}
+            </div>
           )}
         </div>
 
         {/* Loading */}
         {loading && (
           <div className="flex items-center justify-center gap-3 py-16 text-slate-400">
-            <span className="text-xl animate-spin">⟳</span>
+            <span className="text-xl animate-spin" aria-hidden="true">⟳</span>
             <span className="text-sm">Loading report…</span>
           </div>
         )}
 
         {/* ── Report Card ─────────────────────────────────────────────── */}
-        {report && (
+        {report && !loading && (
           <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
 
             {/* ─ Header banner ─ */}
@@ -456,17 +550,20 @@ const Reports = () => {
                   </div>
                   <div className="flex flex-wrap gap-2 pt-1">
                     <span className="px-2 py-0.5 bg-white/10 rounded-full text-blue-100 text-xs">
-                      {report.class || "-"}
+                      {/* backend returns school_class, not class */}
+                      {report.school_class || "-"}
                     </span>
                     <span className="px-2 py-0.5 bg-white/10 rounded-full text-blue-100 text-xs">
                       {TERMS.find((t) => t.value === report.term)?.label || report.term}
+                      &nbsp;{report.year}
                     </span>
                     {report.promotion_status && (
                       <PromotionBadge status={report.promotion_status} />
                     )}
                     {report.next_class_name && (
                       <span className="px-2 py-0.5 bg-white/10 rounded-full text-blue-100 text-xs">
-                        → {report.next_class_name}
+                        {report.promotion_status === "transferred" ? "↪" : "→"}&nbsp;
+                        {report.next_class_name}
                       </span>
                     )}
                   </div>
@@ -475,11 +572,14 @@ const Reports = () => {
                   {report.photo ? (
                     <img
                       src={report.photo}
-                      alt="Student"
+                      alt={`Photo of ${report.student}`}
                       className="w-20 h-20 rounded-xl border-2 border-white/25 object-cover shadow-lg"
                     />
                   ) : (
-                    <div className="w-20 h-20 rounded-xl border-2 border-white/25 bg-blue-700/40 flex items-center justify-center text-3xl font-bold text-white/70 shadow-lg">
+                    <div
+                      className="w-20 h-20 rounded-xl border-2 border-white/25 bg-blue-700/40 flex items-center justify-center text-3xl font-bold text-white/70 shadow-lg"
+                      aria-hidden="true"
+                    >
                       {report.student?.[0] || "?"}
                     </div>
                   )}
@@ -490,22 +590,12 @@ const Reports = () => {
             {/* ─ Stats strip ─ */}
             <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-slate-100 border-b border-slate-100">
               {[
-                {
-                  label: "Total Marks",
-                  value: fmt(report.total_score),
-                  cls:   "text-slate-700",
-                },
-                {
-                  label: "Average",
-                  value: fmt(report.average_score),
-                  cls:   avgColor,
-                },
+                { label: "Total Marks",   value: fmt(report.total_score),   cls: "text-slate-700" },
+                { label: "Average",       value: fmt(report.average_score),  cls: avgColor },
                 {
                   label: "Position",
                   value: report.show_position
-                    ? (report.position_formatted
-                        ? `${report.position_formatted} / ${report.out_of}`
-                        : "-")
+                    ? (report.position_formatted ? `${report.position_formatted} / ${report.out_of}` : "-")
                     : "N/A",
                   cls: "text-blue-600",
                 },
@@ -533,20 +623,16 @@ const Reports = () => {
                     <tr className="bg-slate-700 text-white">
                       <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">SUBJECT</th>
                       <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        RE-OPEN<br />
-                        <span className="font-normal opacity-60">&amp; RDA /20</span>
+                        RE-OPEN<br /><span className="font-normal opacity-60">&amp; RDA /20</span>
                       </th>
                       <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        CA / MGT<br />
-                        <span className="font-normal opacity-60">/40</span>
+                        CA / MGT<br /><span className="font-normal opacity-60">/40</span>
                       </th>
                       <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        EXAMS<br />
-                        <span className="font-normal opacity-60">/40</span>
+                        EXAMS<br /><span className="font-normal opacity-60">/40</span>
                       </th>
                       <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide bg-blue-800/60">
-                        TOTAL<br />
-                        <span className="font-normal opacity-60">/100</span>
+                        TOTAL<br /><span className="font-normal opacity-60">/100</span>
                       </th>
                       {report.show_position && (
                         <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">POS.</th>
@@ -557,7 +643,7 @@ const Reports = () => {
                   </thead>
                   <tbody>
                     {report.subjects?.map((sub, i) => {
-                      const bg = GRADE_COLORS[sub.grade] || "";
+                      const badgeCls = GRADE_COLORS[sub.grade] || "bg-slate-100 text-slate-600";
                       return (
                         <tr
                           key={i}
@@ -578,12 +664,12 @@ const Reports = () => {
                             </td>
                           )}
                           <td className="px-3 py-2.5 text-center">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${bg}`}>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${badgeCls}`}>
                               {sub.grade}
                             </span>
                           </td>
                           <td className="px-3 py-2.5 text-center">
-                            <span className={`px-2 py-0.5 rounded-full text-xs ${bg}`}>
+                            <span className={`px-2 py-0.5 rounded-full text-xs ${badgeCls}`}>
                               {sub.remark || "-"}
                             </span>
                           </td>
@@ -623,7 +709,8 @@ const Reports = () => {
                         {report.attendance} / {report.attendance_total}
                       </span>
                     </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden" role="progressbar"
+                      aria-valuenow={attendancePct} aria-valuemin={0} aria-valuemax={100}>
                       <div
                         className={`h-full rounded-full transition-all duration-500 ${attBarColor}`}
                         style={{ width: `${attendancePct}%` }}
@@ -641,6 +728,9 @@ const Reports = () => {
               {/* Remarks + Promotion */}
               <div className="p-6 space-y-4">
                 <SectionHeader icon="✏️" title="Teacher's Remarks" />
+
+                {/* Save error */}
+                <ErrorBanner message={saveError} />
 
                 {/* Conduct */}
                 <div>
@@ -660,7 +750,8 @@ const Reports = () => {
                 {/* Interest */}
                 <div>
                   <FormLabel>
-                    Interest <span className="text-slate-300 normal-case font-normal">(subject)</span>
+                    Interest{" "}
+                    <span className="text-slate-300 normal-case font-normal">(subject)</span>
                   </FormLabel>
                   <select
                     value={remarks.interest}
@@ -668,7 +759,7 @@ const Reports = () => {
                     className={selectCls}
                   >
                     <option value="">— Select Subject —</option>
-                    {subjectOptions.map((name) => (
+                    {subjectNames.map((name) => (
                       <option key={name} value={name}>{name}</option>
                     ))}
                   </select>
@@ -719,29 +810,25 @@ const Reports = () => {
                         <button
                           key={opt.value}
                           type="button"
-                          onClick={() =>
-                            setRemark("promotion_status", active ? "" : opt.value)
-                          }
+                          onClick={() => setRemark("promotion_status", active ? "" : opt.value)}
                           className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all ${
                             active ? opt.activeClass : opt.idleClass
                           }`}
+                          aria-pressed={active}
                         >
-                          <span>{opt.icon}</span>
+                          <span aria-hidden="true">{opt.icon}</span>
                           <span>{opt.label}</span>
-                          {active && <span className="ml-auto text-xs font-bold">✓</span>}
+                          {active && <span className="ml-auto text-xs font-bold" aria-hidden="true">✓</span>}
                         </button>
                       );
                     })}
                   </div>
 
-                  {/* Next class — only shown when status = promoted or transferred */}
-                  {(remarks.promotion_status === "promoted" ||
-                    remarks.promotion_status === "transferred") && (
+                  {/* Next class — shown for promoted and transferred */}
+                  {showNextClassDropdown && (
                     <div>
                       <FormLabel>
-                        {remarks.promotion_status === "promoted"
-                          ? "Promoted to Class"
-                          : "Transferred to Class"}{" "}
+                        {activePromoOption?.nextLabel || "Next Class"}{" "}
                         <span className="text-slate-300 normal-case font-normal">(optional)</span>
                       </FormLabel>
                       <select
@@ -758,7 +845,7 @@ const Reports = () => {
                   )}
                 </div>
 
-                {/* Save button */}
+                {/* Save */}
                 <div className="flex items-center gap-3 pt-1">
                   <button
                     onClick={saveRemarks}
@@ -768,8 +855,8 @@ const Reports = () => {
                     {savingRemarks ? "Saving…" : "Save Remarks"}
                   </button>
                   {remarksSaved && (
-                    <span className="flex items-center gap-1 text-green-600 text-xs font-semibold">
-                      <span>✓</span> Saved
+                    <span className="flex items-center gap-1 text-green-600 text-xs font-semibold" role="status">
+                      <span aria-hidden="true">✓</span> Saved
                     </span>
                   )}
                 </div>
@@ -780,21 +867,21 @@ const Reports = () => {
         )}
 
         {/* ── Empty states ─────────────────────────────────────────────── */}
-        {!loading && !report && selectedStudent && !error && (
+        {!loading && !report && selectedStudent && !loadError && (
           <div className="text-center py-20">
-            <div className="text-5xl mb-4">📋</div>
+            <div className="text-5xl mb-4" aria-hidden="true">📋</div>
             <p className="text-base font-medium text-slate-500">
               No report found for this student and term.
             </p>
             <p className="text-sm text-slate-400 mt-1">
-              Make sure results have been entered for this term.
+              Make sure results have been entered for {selectedTerm} {selectedYear}.
             </p>
           </div>
         )}
 
         {!selectedStudent && (
           <div className="text-center py-20">
-            <div className="text-5xl mb-4">🎓</div>
+            <div className="text-5xl mb-4" aria-hidden="true">🎓</div>
             <p className="text-base font-medium text-slate-400">
               Select a class and student to view their report.
             </p>

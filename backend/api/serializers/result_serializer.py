@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.results.models import Result
-from api.grade_utils import get_grade_and_remark, get_thresholds
+from api.views.grades import get_grade_and_remark, get_thresholds
 
 
 class ResultSerializer(serializers.ModelSerializer):

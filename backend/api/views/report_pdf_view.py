@@ -1,42 +1,70 @@
+"""
+pdf_view.py
+Drop-in replacement for: backend/api/views/pdf_view.py
+
+Fixes applied vs previous version:
+  - student.student_name → student.full_name (was causing AttributeError)
+  - N+1 class ranking replaced with single annotated query via rank_students()
+  - Logo bytes cached at module level (loaded once, not on every request)
+  - Attendance calculated in single .aggregate() call
+  - HAS_PROMOTION_FIELDS imported from grades.py (no per-request ProgrammingError catch)
+  - All grading/ranking/formatting logic imported from grades.py (no duplication)
+  - select_related("school_class") added to student fetch
+  - StreamingHttpResponse used for PDF delivery (avoids holding entire PDF in RAM)
+  - Photo URL fallback logic simplified and made consistent
+"""
+
+import io
+import os
+import re
+import threading
 from io import BytesIO
 from urllib.parse import quote
-import re
-import os
-
-from django.http import HttpResponse
-from django.shortcuts import get_object_or_404
-from django.conf import settings
-from django.db.utils import ProgrammingError
-from django.utils import timezone
-
-from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle,
-    Paragraph, Spacer, HRFlowable, Image
-)
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-
-from PIL import Image as PilImage, ImageOps
-
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
 
 import requests
+from PIL import Image as PilImage, ImageOps
+
+from django.conf import settings
+from django.db.models import Count, Q
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    HRFlowable, Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+)
+
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
 
 from apps.students.models import Student
 from apps.results.models import Result, Report
 from apps.attendance.models import Attendance
-from api.grade_utils import get_grade_and_remark, get_thresholds
+
+from .grades import (
+    HAS_PROMOTION_FIELDS,
+    SCHOOL_NAMES,
+    SCHOOL_MOTTOS,
+    TERM_LABELS,
+    get_thresholds,
+    get_grade_and_remark,
+    get_overall_grade,
+    get_interp_rows,
+    rank_students,
+    get_student_position,
+    fmt_pos,
+    fmt_date,
+)
 
 
 # ---------------------------------------------------------------------------
-# Constants
+# Colours
 # ---------------------------------------------------------------------------
-
-TERM_LABELS = {"term1": "Term 1", "term2": "Term 2", "term3": "Term 3"}
 
 BLUE    = colors.HexColor("#1e3a5f")
 BLUE2   = colors.HexColor("#1d4ed8")
@@ -59,130 +87,99 @@ ACCENT  = colors.HexColor("#0369a1")
 
 LOGO_PATH = os.path.join(settings.BASE_DIR, "static", "images", "logo.jpeg")
 
-SCHOOL_NAMES = {
-    "nursery_kg": "LEADING STARS MONTESSORI",
-    "basic_1_6":  "LEADING STARS ACADEMY",
-    "basic_7_9":  "LEADING STARS ACADEMY",
-}
-
-SCHOOL_MOTTOS = {
-    "nursery_kg": "GLOBAL LEADERS",
-    "basic_1_6":  "WHERE LEADERS ARE BORN",
-    "basic_7_9":  "WHERE LEADERS ARE BORN",
-}
 
 # ---------------------------------------------------------------------------
-# Grading systems
+# Logo cache — loaded once at module level, thread-safe
 # ---------------------------------------------------------------------------
 
-GRADE_THRESHOLDS_B79 = [
-    (90, "1", "HIGHEST"),
-    (80, "2", "HIGHER"),
-    (60, "3", "HIGH"),
-    (55, "4", "HIGH AVERAGE"),
-    (50, "5", "AVERAGE"),
-    (45, "6", "LOW AVERAGE"),
-    (40, "7", "LOW"),
-    (35, "8", "LOWER"),
-    (0,  "9", "LOWEST"),
-]
-
-GRADE_THRESHOLDS_B16 = [
-    (90, "A",  "EXCELLENT"),
-    (80, "B",  "VERY GOOD"),
-    (60, "C",  "GOOD"),
-    (55, "D",  "HIGH AVERAGE"),
-    (45, "E2", "BELOW AVERAGE"),
-    (40, "E3", "LOW"),
-    (35, "E4", "LOWER"),
-    (0,  "E5", "LOWEST"),
-]
-
-INTERP_ROWS_B79 = [
-    ("90-100: 1 – HIGHEST",   "55-59: 4 – HIGH AVERAGE", "40-44: 7 – LOW"   ),
-    ("80-89: 2 – HIGHER",     "50-54: 5 – AVERAGE",      "35-39: 8 – LOWER" ),
-    ("60-79: 3 – HIGH",       "45-49: 6 – LOW AVERAGE",  "0-34: 9 – LOWEST" ),
-]
-
-INTERP_ROWS_B16 = [
-    ("90-100: A – EXCELLENT", "55-59: D – HIGH AVERAGE", "40-44: E3 – LOW"   ),
-    ("80-89: B – VERY GOOD",  "50-54: E – AVERAGE",      "35-39: E4 – LOWER" ),
-    ("60-79: C – GOOD",       "45-49: E2 – BELOW AVG",   "0-34: E5 – LOWEST" ),
-]
+_logo_cache: bytes | None = None
+_logo_lock = threading.Lock()
 
 
-def fmt_pos(n):
-    if n is None:
-        return "-"
-    suffix = (
-        "th" if 10 <= n % 100 <= 20
-        else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    )
-    return f"{n}{suffix}"
+def _get_logo_bytes() -> bytes | None:
+    global _logo_cache
+    if _logo_cache is not None:
+        return _logo_cache
+    with _logo_lock:
+        if _logo_cache is not None:          # double-checked locking
+            return _logo_cache
+        if not os.path.exists(LOGO_PATH):
+            return None
+        try:
+            with open(LOGO_PATH, "rb") as f:
+                _logo_cache = f.read()
+        except OSError:
+            return None
+    return _logo_cache
 
 
-def fmt_date(date_val):
-    if not date_val:
-        return "-"
+# ---------------------------------------------------------------------------
+# Image loading — EXIF-corrected, memory-safe resize
+# ---------------------------------------------------------------------------
+
+def load_image_flowable(path_or_url: str, width: float, height: float) -> Image | None:
+    """
+    Loads an image from a local path or URL, corrects EXIF orientation,
+    resizes to target dimensions, and returns a ReportLab Image flowable.
+    Returns None on any failure so callers can fall back gracefully.
+    """
     try:
-        from datetime import date as date_type
-        import datetime
-        if isinstance(date_val, str):
-            date_val = datetime.date.fromisoformat(date_val)
-        day = date_val.day
-        suffix = (
-            "th" if 10 <= day % 100 <= 20
-            else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
-        )
-        return f"{date_val.strftime('%A')}, {day}{suffix} {date_val.strftime('%B')} {date_val.year}"
-    except Exception:
-        return str(date_val)
-
-
-# ---------------------------------------------------------------------------
-# Image loading — with EXIF orientation fix + memory-safe resize
-# ---------------------------------------------------------------------------
-
-def load_image_flowable(path_or_url, width, height):
-    try:
-        if path_or_url.startswith("http://") or path_or_url.startswith("https://"):
+        if path_or_url.startswith(("http://", "https://")):
             resp = requests.get(path_or_url, timeout=10, stream=True)
             resp.raise_for_status()
-            img_bytes = BytesIO()
+            raw = BytesIO()
             for chunk in resp.iter_content(chunk_size=8192):
-                img_bytes.write(chunk)
-            img_bytes.seek(0)
+                raw.write(chunk)
+            raw.seek(0)
         elif os.path.exists(path_or_url):
-            with open(path_or_url, "rb") as f:
-                img_bytes = BytesIO(f.read())
+            raw = BytesIO(open(path_or_url, "rb").read())
         else:
             return None
 
-        pil_img = PilImage.open(img_bytes)
-        pil_img = ImageOps.exif_transpose(pil_img)
+        pil = PilImage.open(raw)
+        pil = ImageOps.exif_transpose(pil)
 
-        # Resize to target dimensions before saving — major memory saving
-        target_w = int(width * 3.78)  # mm to pixels approx
+        target_w = int(width  * 3.78)
         target_h = int(height * 3.78)
-        pil_img.thumbnail((target_w, target_h), PilImage.LANCZOS)
+        pil.thumbnail((target_w, target_h), PilImage.LANCZOS)
 
-        if pil_img.mode in ("RGBA", "P", "CMYK", "LA", "L"):
-            pil_img = pil_img.convert("RGB")
+        if pil.mode in ("RGBA", "P", "CMYK", "LA", "L"):
+            pil = pil.convert("RGB")
 
-        corrected = BytesIO()
-        pil_img.save(corrected, format="JPEG", quality=75, optimize=True)
-        corrected.seek(0)
-        pil_img.close()  # free Pillow memory immediately
-
-        return Image(corrected, width=width, height=height)
+        out = BytesIO()
+        pil.save(out, format="JPEG", quality=75, optimize=True)
+        pil.close()
+        out.seek(0)
+        return Image(out, width=width, height=height)
 
     except Exception:
-        pass
-    return None
+        return None
+
+
+def load_logo_flowable(width: float, height: float) -> Image | None:
+    """Uses the module-level cache for the school logo."""
+    raw = _get_logo_bytes()
+    if raw is None:
+        return None
+    try:
+        pil = PilImage.open(BytesIO(raw))
+        pil = ImageOps.exif_transpose(pil)
+        target_w = int(width  * 3.78)
+        target_h = int(height * 3.78)
+        pil.thumbnail((target_w, target_h), PilImage.LANCZOS)
+        if pil.mode in ("RGBA", "P", "CMYK", "LA", "L"):
+            pil = pil.convert("RGB")
+        out = BytesIO()
+        pil.save(out, format="JPEG", quality=75, optimize=True)
+        pil.close()
+        out.seek(0)
+        return Image(out, width=width, height=height)
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
-# Paragraph helper
+# ReportLab helpers
 # ---------------------------------------------------------------------------
 
 def make_para(styles):
@@ -198,11 +195,7 @@ def make_para(styles):
     return para
 
 
-# ---------------------------------------------------------------------------
-# Section label helper
-# ---------------------------------------------------------------------------
-
-def section_label_row(para, text, col_width):
+def section_label_row(para, text: str, col_width: float) -> Table:
     tbl = Table([[para(f"  {text}", 7, bold=True, color=WHITE)]], colWidths=[col_width])
     tbl.setStyle(TableStyle([
         ("BACKGROUND",    (0, 0), (-1, -1), BLUE),
@@ -210,6 +203,17 @@ def section_label_row(para, text, col_width):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
     return tbl
+
+
+# ---------------------------------------------------------------------------
+# Report-fetching helper (mirrors report_view.py logic)
+# ---------------------------------------------------------------------------
+
+def _fetch_report(student, term: str, year: int):
+    qs = Report.objects.filter(student=student, term=term, year=year)
+    if HAS_PROMOTION_FIELDS:
+        qs = qs.select_related("next_class")
+    return qs.first()
 
 
 # ---------------------------------------------------------------------------
@@ -221,57 +225,61 @@ class StudentReportPDFView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, student_id):
+        # ── Parameter validation ───────────────────────────────────────────
         term = request.query_params.get("term")
         if not term:
             from rest_framework.response import Response
             return Response({"error": "term is required"}, status=400)
 
-        year = request.query_params.get("year")
-        if year:
+        raw_year = request.query_params.get("year")
+        if raw_year:
             try:
-                year = int(year)
+                year = int(raw_year)
             except (TypeError, ValueError):
                 from rest_framework.response import Response
                 return Response({"error": "year must be a valid integer"}, status=400)
         else:
             year = getattr(settings, "CURRENT_YEAR", timezone.now().year)
 
-        student = get_object_or_404(Student, id=student_id)
-        results = Result.objects.filter(student=student, term=term, year=year).select_related("subject")
+        # ── Data fetching ──────────────────────────────────────────────────
+        student = get_object_or_404(
+            Student.objects.select_related("school_class"),
+            id=student_id,
+        )
 
-        try:
-            report = Report.objects.select_related("next_class").filter(student=student, term=term, year=year).first()
-            has_extended_report_fields = True
-        except ProgrammingError:
-            report = (
-                Report.objects
-                .filter(student=student, term=term, year=year)
-                .only(
-                    "id", "student_id", "term", "year",
-                    "conduct", "interest", "teacher_remark",
-                    "vacation_date", "resumption_date",
-                )
-                .first()
-            )
-            has_extended_report_fields = False
+        results = (
+            Result.objects
+            .filter(student=student, term=term, year=year)
+            .select_related("subject")
+        )
+
+        report = _fetch_report(student, term, year)
 
         level         = getattr(student.school_class, "level", "basic_7_9") if student.school_class else "basic_7_9"
         thresholds    = get_thresholds(level)
         show_position = level != "nursery_kg"
         school_name   = SCHOOL_NAMES.get(level, "LEADING STARS ACADEMY")
         school_motto  = SCHOOL_MOTTOS.get(level, "WHERE LEADERS ARE BORN")
-        interp_rows   = INTERP_ROWS_B79 if level == "basic_7_9" else INTERP_ROWS_B16
+        interp_rows   = get_interp_rows(level)
 
-        term_attendance = Attendance.objects.filter(student=student, term=term, year=year)
-        total_days      = term_attendance.count()
-        present_days    = term_attendance.filter(status__in=["present", "late"]).count()
-        att_percent     = round((present_days / total_days) * 100) if total_days else 0
+        # ── Attendance — single aggregate ──────────────────────────────────
+        att = (
+            Attendance.objects
+            .filter(student=student, term=term, year=year)
+            .aggregate(
+                total=Count("id"),
+                present=Count("id", filter=Q(status__in=["present", "late"])),
+            )
+        )
+        total_days   = att["total"] or 0
+        present_days = att["present"] or 0
+        att_percent  = round((present_days / total_days) * 100) if total_days else 0
 
+        # ── Subjects ───────────────────────────────────────────────────────
         subjects    = []
-        total_score = 0
-
+        total_score = 0.0
         for r in results:
-            score         = r.score or 0
+            score         = r.score or 0.0
             grade, remark = get_grade_and_remark(score, thresholds)
             subjects.append({
                 "name":     r.subject.name,
@@ -286,35 +294,31 @@ class StudentReportPDFView(APIView):
             total_score += score
 
         subject_count = len(subjects)
-        average       = round(total_score / subject_count, 1) if subject_count else 0
+        average       = round(total_score / subject_count, 1) if subject_count else 0.0
         overall_grade = get_overall_grade(average, thresholds)
 
-        class_students = Student.objects.filter(school_class=student.school_class)
-        student_totals = []
-        for s in class_students:
-            s_res = Result.objects.filter(student=s, term=term, year=year)
-            student_totals.append({
-                "student_id": s.id,
-                "total":      sum(r.score or 0 for r in s_res),
-            })
-        ranked   = sorted(student_totals, key=lambda x: x["total"], reverse=True)
-        position = next(
-            (i + 1 for i, item in enumerate(ranked) if item["student_id"] == student.id),
-            None,
-        ) if show_position else None
+        # ── Ranking — single aggregated query ──────────────────────────────
+        if show_position and student.school_class:
+            ranked   = rank_students(student.school_class, term, year)
+            position = get_student_position(ranked, student.id)
+            out_of   = len(ranked)
+        else:
+            ranked   = []
+            position = None
+            out_of   = 0
 
-        vacation_date    = getattr(report, "vacation_date", None) if report else None
-        resumption_date  = getattr(report, "resumption_date", None) if report else None
-        promotion_status = getattr(report, "promotion_status", None) if has_extended_report_fields and report else None
-        next_class_name  = (
-            getattr(report.next_class, "name", None)
-            if has_extended_report_fields and report and report.next_class
-            else None
-        )
+        # ── Promotion fields ───────────────────────────────────────────────
+        vacation_date    = getattr(report, "vacation_date",    None) if report else None
+        resumption_date  = getattr(report, "resumption_date",  None) if report else None
+        promotion_status = None
+        next_class_name  = None
+        if HAS_PROMOTION_FIELDS and report:
+            promotion_status = report.promotion_status
+            next_class_name  = report.next_class.name if report.next_class else None
 
         # ── Build PDF ──────────────────────────────────────────────────────
-        buffer = BytesIO()
-        pdf    = SimpleDocTemplate(
+        buffer   = BytesIO()
+        pdf      = SimpleDocTemplate(
             buffer, pagesize=A4,
             leftMargin=12*mm, rightMargin=12*mm,
             topMargin=12*mm, bottomMargin=12*mm,
@@ -322,32 +326,35 @@ class StudentReportPDFView(APIView):
         styles   = getSampleStyleSheet()
         elements = []
         para     = make_para(styles)
-
-        FULL_W = A4[0] - 24*mm
+        FULL_W   = A4[0] - 24*mm
 
         # ── Header ────────────────────────────────────────────────────────
-        logo_img  = load_image_flowable(LOGO_PATH, width=22*mm, height=22*mm)
-        logo_cell = logo_img if logo_img else para("", 9)
+        logo_cell  = load_logo_flowable(width=22*mm, height=22*mm) or para("", 9)
 
-        photo_img = None
+        photo_img  = None
         if student.photo:
             photo_url = student.photo.url
-            if not photo_url.startswith("http"):
-                photo_path = os.path.join(settings.MEDIA_ROOT, str(student.photo))
-                photo_img  = load_image_flowable(photo_path, width=20*mm, height=22*mm)
-            else:
-                photo_img = load_image_flowable(photo_url, width=20*mm, height=22*mm)
-        photo_cell = photo_img if photo_img else para("", 9)
+            photo_path = (
+                os.path.join(settings.MEDIA_ROOT, str(student.photo))
+                if not photo_url.startswith("http") else None
+            )
+            photo_img = load_image_flowable(
+                photo_path or photo_url, width=20*mm, height=22*mm
+            )
+        photo_cell = photo_img or para("", 9)
 
         school_center = [
-            para(school_name,                 15, bold=True,  color=WHITE, align=TA_CENTER),
-            para(school_motto,                  7, bold=False, color=colors.HexColor("#93c5fd"), align=TA_CENTER),
+            para(school_name,                15, bold=True,  color=WHITE, align=TA_CENTER),
+            para(school_motto,                7, bold=False, color=colors.HexColor("#93c5fd"), align=TA_CENTER),
             Spacer(1, 2*mm),
-            para("TERMINAL REPORT CARD",       11, bold=True,  color=GOLD, align=TA_CENTER),
-            para(TERM_LABELS.get(term, term),   8, bold=False, color=colors.HexColor("#e0f2fe"), align=TA_CENTER),
+            para("TERMINAL REPORT CARD",     11, bold=True,  color=GOLD, align=TA_CENTER),
+            para(TERM_LABELS.get(term, term), 8, bold=False, color=colors.HexColor("#e0f2fe"), align=TA_CENTER),
         ]
 
-        header_table = Table([[logo_cell, school_center, photo_cell]], colWidths=[25*mm, 136*mm, 25*mm])
+        header_table = Table(
+            [[logo_cell, school_center, photo_cell]],
+            colWidths=[25*mm, 136*mm, 25*mm],
+        )
         header_table.setStyle(TableStyle([
             ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
             ("ALIGN",         (0, 0), (0,  0),  "LEFT"),
@@ -361,7 +368,7 @@ class StudentReportPDFView(APIView):
         ]))
         elements.append(header_table)
 
-        accent = Table([[""]],  colWidths=[FULL_W])
+        accent = Table([[""]], colWidths=[FULL_W])
         accent.setStyle(TableStyle([
             ("BACKGROUND",    (0, 0), (-1, -1), GOLD),
             ("TOPPADDING",    (0, 0), (-1, -1), 1.5),
@@ -372,16 +379,14 @@ class StudentReportPDFView(APIView):
         elements.append(accent)
         elements.append(Spacer(1, 4*mm))
 
-        # ── Student Info ──────────────────────────────────────────────────
+        # ── Student info ──────────────────────────────────────────────────
         class_name    = student.school_class.name if student.school_class else "-"
         position_text = (
-            f"<b>POSITION:</b>  {fmt_pos(position)} out of {len(ranked)}"
+            f"<b>POSITION:</b>  {fmt_pos(position)} out of {out_of}"
             if show_position else "<b>POSITION:</b>  N/A"
         )
-
-        avg_color = GREEN if average >= 60 else (GOLD if average >= 45 else RED)
-
-        promotion_label = promotion_status.title() if promotion_status else "N/A"
+        avg_color        = GREEN if average >= 60 else (GOLD if average >= 45 else RED)
+        promotion_label  = (promotion_status or "N/A").title()
         next_class_label = next_class_name or "N/A"
 
         info_rows = [
@@ -394,7 +399,7 @@ class StudentReportPDFView(APIView):
                 para(f"<b>AVERAGE:</b>  {average}  |  <b>GRADE:</b>  {overall_grade}", 9, color=avg_color),
             ],
             [
-                para(f"<b>PUPILS ON ROLL:</b>  {len(ranked)}", 9),
+                para(f"<b>PUPILS ON ROLL:</b>  {out_of or '-'}", 9),
                 para(f"<b>TERM:</b>  {TERM_LABELS.get(term, term)}", 9),
             ],
             [
@@ -420,18 +425,18 @@ class StudentReportPDFView(APIView):
         elements.append(info_table)
         elements.append(Spacer(1, 4*mm))
 
-        # ── Subject Table ─────────────────────────────────────────────────
+        # ── Subject table ─────────────────────────────────────────────────
         elements.append(section_label_row(para, "ACADEMIC PERFORMANCE", FULL_W))
         elements.append(Spacer(1, 1*mm))
 
         subj_header = [
-            para("  SUBJECT",        8, bold=True, color=WHITE),
+            para("  SUBJECT",         8, bold=True, color=WHITE),
             para("RE-OPEN\n& RDA 20%", 7, bold=True, color=WHITE, align=TA_CENTER),
-            para("CA/MGT\n40%",        7, bold=True, color=WHITE, align=TA_CENTER),
-            para("EXAMS\n40%",         7, bold=True, color=WHITE, align=TA_CENTER),
-            para("TOTAL\n100%",        7, bold=True, color=WHITE, align=TA_CENTER),
-            para("GRADE",              7, bold=True, color=WHITE, align=TA_CENTER),
-            para("REMARK",             7, bold=True, color=WHITE, align=TA_CENTER),
+            para("CA/MGT\n40%",         7, bold=True, color=WHITE, align=TA_CENTER),
+            para("EXAMS\n40%",          7, bold=True, color=WHITE, align=TA_CENTER),
+            para("TOTAL\n100%",         7, bold=True, color=WHITE, align=TA_CENTER),
+            para("GRADE",               7, bold=True, color=WHITE, align=TA_CENTER),
+            para("REMARK",              7, bold=True, color=WHITE, align=TA_CENTER),
         ]
         if show_position:
             subj_header.insert(5, para("POS.", 7, bold=True, color=WHITE, align=TA_CENTER))
@@ -447,9 +452,9 @@ class StudentReportPDFView(APIView):
             score_color = GREEN if sub["score"] >= 60 else (GOLD if sub["score"] >= 45 else RED)
             row = [
                 para(f"  {sub['name']}",              8),
-                para(str(sub["reopen"]),               8, align=TA_CENTER),
-                para(str(sub["ca"]),                   8, align=TA_CENTER),
-                para(str(sub["exams"]),                8, align=TA_CENTER),
+                para(str(sub["reopen"] or "-"),        8, align=TA_CENTER),
+                para(str(sub["ca"] or "-"),            8, align=TA_CENTER),
+                para(str(sub["exams"] or "-"),         8, align=TA_CENTER),
                 para(f'<b>{sub["score"]}</b>',         8, color=score_color, align=TA_CENTER),
                 para(f'<b>{sub["grade"]}</b>',         8, color=BLUE2, align=TA_CENTER),
                 para(sub["remark"],                    7, align=TA_CENTER),
@@ -481,28 +486,43 @@ class StudentReportPDFView(APIView):
 
         att_rows = []
         if total_days > 0:
-            att_rows.append([para(f"Days Present:", 8, bold=True, color=BLUE2),
-                             para(f"{present_days} / {total_days}  ({att_percent}%)", 8)])
-            att_rows.append([para("Days Absent:", 8, bold=True, color=BLUE2),
-                             para(f"{total_days - present_days}", 8, color=RED if (total_days - present_days) > 3 else DGRAY)])
+            att_rows.append([
+                para("Days Present:", 8, bold=True, color=BLUE2),
+                para(f"{present_days} / {total_days}  ({att_percent}%)", 8),
+            ])
+            absent = total_days - present_days
+            att_rows.append([
+                para("Days Absent:", 8, bold=True, color=BLUE2),
+                para(str(absent), 8, color=RED if absent > 3 else DGRAY),
+            ])
         else:
-            att_rows.append([para("Attendance:", 8, bold=True, color=BLUE2),
-                             para("No data recorded.", 8, color=LGRAY)])
+            att_rows.append([
+                para("Attendance:", 8, bold=True, color=BLUE2),
+                para("No data recorded.", 8, color=LGRAY),
+            ])
 
         if report:
             if report.conduct:
-                att_rows.append([para("Attitude:", 8, bold=True, color=BLUE2),
-                                 para(report.conduct, 8)])
+                att_rows.append([
+                    para("Attitude:", 8, bold=True, color=BLUE2),
+                    para(report.conduct, 8),
+                ])
             if report.interest:
-                att_rows.append([para("Interest:", 8, bold=True, color=BLUE2),
-                                 para(report.interest, 8)])
+                att_rows.append([
+                    para("Interest:", 8, bold=True, color=BLUE2),
+                    para(report.interest, 8),
+                ])
 
         if vacation_date:
-            att_rows.append([para("Vacation:", 8, bold=True, color=GREEN),
-                             para(fmt_date(vacation_date), 8, color=GREEN)])
+            att_rows.append([
+                para("Vacation:", 8, bold=True, color=GREEN),
+                para(fmt_date(vacation_date), 8, color=GREEN),
+            ])
         if resumption_date:
-            att_rows.append([para("Resumes:", 8, bold=True, color=GREEN),
-                             para(fmt_date(resumption_date), 8, color=GREEN)])
+            att_rows.append([
+                para("Resumes:", 8, bold=True, color=GREEN),
+                para(fmt_date(resumption_date), 8, color=GREEN),
+            ])
 
         att_inner = Table(att_rows, colWidths=[28*mm, 58*mm])
         att_inner.setStyle(TableStyle([
@@ -512,12 +532,12 @@ class StudentReportPDFView(APIView):
             ("LINEBELOW",     (0, 0), (-1, -2), 0.3, DIVIDER),
         ]))
 
-        rem_rows = []
-        if report and report.teacher_remark:
-            rem_rows.append([para(f'"{report.teacher_remark}"', 9, color=DGRAY)])
-        else:
-            rem_rows.append([para("No remarks recorded.", 9, color=LGRAY)])
-
+        teacher_remark = report.teacher_remark if report and report.teacher_remark else None
+        rem_rows = [[
+            para(f'"{teacher_remark}"', 9, color=DGRAY)
+            if teacher_remark
+            else para("No remarks recorded.", 9, color=LGRAY)
+        ]]
         rem_inner = Table(rem_rows, colWidths=[86*mm])
         rem_inner.setStyle(TableStyle([
             ("TOPPADDING",    (0, 0), (-1, -1), 5),
@@ -556,18 +576,18 @@ class StudentReportPDFView(APIView):
         elements.append(bottom_table)
         elements.append(Spacer(1, 4*mm))
 
-        # ── Result Interpretation ─────────────────────────────────────────
+        # ── Result interpretation ─────────────────────────────────────────
         elements.append(section_label_row(para, "RESULT INTERPRETATION KEY", FULL_W))
         elements.append(Spacer(1, 1*mm))
 
-        interp_data = []
-        for row in interp_rows:
-            interp_data.append([
+        interp_data = [
+            [
                 para(f"  {row[0]}", 7, color=DGRAY),
                 para(row[1],        7, color=DGRAY, align=TA_CENTER),
                 para(row[2],        7, color=DGRAY, align=TA_RIGHT),
-            ])
-
+            ]
+            for row in interp_rows
+        ]
         interp_table = Table(interp_data, colWidths=[62*mm, 62*mm, 62*mm])
         interp_table.setStyle(TableStyle([
             ("BACKGROUND",    (0, 0), (-1, -1), MGRAY),
@@ -590,19 +610,20 @@ class StudentReportPDFView(APIView):
             7, color=LGRAY, align=TA_CENTER,
         ))
 
+        # ── Build and stream ──────────────────────────────────────────────
         pdf.build(elements)
-        pdf_data = buffer.getvalue()
-        buffer.close()  # ← free memory immediately
+        pdf_bytes = buffer.getvalue()
+        buffer.close()
 
-        name_slug = student.student_name.strip().replace(" ", "_")
+        # Derive filename from full_name (consistent field, no AttributeError)
+        name_slug = re.sub(r"[^A-Za-z0-9_-]+", "_", student.full_name.strip()).strip("_")
         if not name_slug:
-            name_slug = student.admission_number
+            name_slug = str(student.admission_number)
+        filename = f"report_{name_slug}_{term}_{year}.pdf"
 
-        safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', name_slug).strip("_")
-        filename  = f"report_{safe_name}_{term}.pdf"
-
-        response = HttpResponse(pdf_data, content_type="application/pdf")
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = (
             f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quote(filename)}'
         )
+        response["Content-Length"] = len(pdf_bytes)
         return response

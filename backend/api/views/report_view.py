@@ -1,18 +1,25 @@
 """
-Drop-in replacement for:
-  backend/api/views/report_view.py
+report_view.py
+Drop-in replacement for: backend/api/views/report_view.py
 
-Changes vs the previous version:
-  • GET returns promotion_status, next_class (id), next_class_name
-  • PATCH accepts and persists promotion_status + next_class
-  • Grading / attendance / ranking logic is unchanged
+Fixes applied vs previous version:
+  - Shared grading/ranking logic imported from grades.py (no more duplication)
+  - N+1 class ranking replaced with single annotated query via rank_students()
+  - Attendance now calculated in a single .aggregate() call
+  - HAS_PROMOTION_FIELDS uses DB introspection at import time (no per-request
+    ProgrammingError catch that could swallow real DB errors)
+  - PATCH validates year explicitly and surfaces the error
+  - PATCH saves update_fields correctly including "next_class_id"
+  - select_related("school_class") added to student fetch
+  - ReportSerializer added for a consistent, validated response shape
 """
 
 from django.conf import settings
-from django.db.utils import ProgrammingError
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
+from rest_framework import serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -20,28 +27,100 @@ from rest_framework.views import APIView
 from apps.results.models import Result, Report
 from apps.students.models import Student
 from apps.attendance.models import Attendance
-from api.grade_utils import get_grade_and_remark, get_thresholds
+
+from .grades import (
+    HAS_PROMOTION_FIELDS,
+    SCHOOL_NAMES,
+    TERM_LABELS,
+    get_thresholds,
+    get_grade_and_remark,
+    get_overall_grade,
+    rank_students,
+    get_student_position,
+    fmt_pos,
+)
 
 
-SCHOOL_NAMES = {
-    "nursery_kg": "LEADING STARS MONTESSORI",
-    "basic_1_6":  "LEADING STARS ACADEMY",
-    "basic_7_9":  "LEADING STARS ACADEMY",
-}
-
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def get_current_year() -> int:
     return getattr(settings, "CURRENT_YEAR", timezone.now().year)
 
 
-def format_position(n):
-    if n is None:
-        return None
-    suffix = (
-        "th" if 10 <= n % 100 <= 20
-        else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    )
-    return f"{n}{suffix}"
+def _parse_year(raw) -> tuple[int | None, str | None]:
+    """Returns (year_int, error_string). error_string is None on success."""
+    if raw is None or raw == "":
+        return get_current_year(), None
+    try:
+        return int(raw), None
+    except (TypeError, ValueError):
+        return None, "year must be a valid integer"
+
+
+def _fetch_report(student, term: str, year: int):
+    """
+    Fetches the Report for (student, term, year).
+    Returns (report_instance | None, has_promotion_fields: bool).
+    Uses the module-level HAS_PROMOTION_FIELDS flag instead of catching
+    ProgrammingError per request (which could swallow real DB errors).
+    """
+    qs = Report.objects.filter(student=student, term=term, year=year)
+    if HAS_PROMOTION_FIELDS:
+        qs = qs.select_related("next_class")
+    return qs.first(), HAS_PROMOTION_FIELDS
+
+
+# ---------------------------------------------------------------------------
+# Serializer
+# ---------------------------------------------------------------------------
+
+class SubjectResultSerializer(serializers.Serializer):
+    subject          = serializers.CharField()
+    reopen           = serializers.FloatField(allow_null=True)
+    ca               = serializers.FloatField(allow_null=True)
+    exams            = serializers.FloatField(allow_null=True)
+    score            = serializers.FloatField(allow_null=True)
+    grade            = serializers.CharField()
+    remark           = serializers.CharField()
+    subject_position = serializers.IntegerField(allow_null=True)
+
+
+class ReportResponseSerializer(serializers.Serializer):
+    student            = serializers.CharField()
+    admission_number   = serializers.CharField(allow_null=True)
+    school_class       = serializers.CharField(allow_null=True)
+    photo              = serializers.CharField(allow_null=True)
+    term               = serializers.CharField()
+    year               = serializers.IntegerField()
+    level              = serializers.CharField()
+    school_name        = serializers.CharField()
+    show_position      = serializers.BooleanField()
+
+    subjects           = SubjectResultSerializer(many=True)
+    total_score        = serializers.FloatField()
+    average_score      = serializers.FloatField()
+    overall_grade      = serializers.CharField()
+    subjects_passed    = serializers.IntegerField()
+    subjects_failed    = serializers.IntegerField()
+
+    position           = serializers.IntegerField(allow_null=True)
+    position_formatted = serializers.CharField(allow_null=True)
+    out_of             = serializers.IntegerField(allow_null=True)
+
+    attendance         = serializers.IntegerField()
+    attendance_total   = serializers.IntegerField()
+    attendance_percent = serializers.IntegerField()
+
+    conduct            = serializers.CharField(allow_null=True)
+    interest           = serializers.CharField(allow_null=True)
+    teacher_remark     = serializers.CharField(allow_null=True)
+    vacation_date      = serializers.CharField(allow_null=True)
+    resumption_date    = serializers.CharField(allow_null=True)
+    promotion_status   = serializers.CharField(allow_null=True)
+    next_class         = serializers.IntegerField(allow_null=True)
+    next_class_name    = serializers.CharField(allow_null=True)
 
 
 # ---------------------------------------------------------------------------
@@ -59,18 +138,17 @@ class StudentReportView(APIView):
         if not term:
             return Response({"error": "term is required"}, status=400)
 
-        year = request.query_params.get("year")
-        if year:
-            try:
-                year = int(year)
-            except (TypeError, ValueError):
-                return Response({"error": "year must be a valid integer"}, status=400)
-        else:
-            year = get_current_year()
+        year, err = _parse_year(request.query_params.get("year"))
+        if err:
+            return Response({"error": err}, status=400)
 
-        student    = get_object_or_404(Student, id=student_id)
-        level      = getattr(student.school_class, "level", "basic_7_9") if student.school_class else "basic_7_9"
-        thresholds = get_thresholds(level)
+        student = get_object_or_404(
+            Student.objects.select_related("school_class"),
+            id=student_id,
+        )
+
+        level         = getattr(student.school_class, "level", "basic_7_9") if student.school_class else "basic_7_9"
+        thresholds    = get_thresholds(level)
         show_position = level != "nursery_kg"
 
         results = (
@@ -79,38 +157,17 @@ class StudentReportView(APIView):
             .select_related("subject")
         )
 
-        # Try the richer query first; fall back if the database schema is
-        # still on the older migration set.
-        try:
-            report = (
-                Report.objects
-                .select_related("next_class")
-                .filter(student=student, term=term, year=year)
-                .first()
-            )
-            has_extended_report_fields = True
-        except ProgrammingError:
-            report = (
-                Report.objects
-                .filter(student=student, term=term, year=year)
-                .only(
-                    "id", "student_id", "term", "year",
-                    "conduct", "interest", "teacher_remark",
-                    "vacation_date", "resumption_date",
-                )
-                .first()
-            )
-            has_extended_report_fields = False
+        report, has_promo = _fetch_report(student, term, year)
 
+        # ── Subjects ──────────────────────────────────────────────────────
         subjects    = []
-        total_score = 0
+        total_score = 0.0
         passed      = 0
         failed      = 0
 
         for r in results:
-            score         = r.score or 0
+            score         = r.score or 0.0
             grade, remark = get_grade_and_remark(score, thresholds)
-
             subjects.append({
                 "subject":          r.subject.name,
                 "reopen":           r.reopen,
@@ -121,7 +178,6 @@ class StudentReportView(APIView):
                 "remark":           remark,
                 "subject_position": r.subject_position if show_position else None,
             })
-
             total_score += score
             if score >= 50:
                 passed += 1
@@ -129,34 +185,45 @@ class StudentReportView(APIView):
                 failed += 1
 
         subject_count = len(subjects)
-        average       = round(total_score / subject_count, 1) if subject_count else 0
+        average       = round(total_score / subject_count, 1) if subject_count else 0.0
         overall_grade = get_overall_grade(average, thresholds)
 
-        # Attendance
-        term_attendance = Attendance.objects.filter(student=student, term=term, year=year)
-        total_days      = term_attendance.count()
-        present_days    = term_attendance.filter(status__in=["present", "late"]).count()
+        # ── Attendance — single aggregate query ───────────────────────────
+        att = (
+            Attendance.objects
+            .filter(student=student, term=term, year=year)
+            .aggregate(
+                total=Count("id"),
+                present=Count("id", filter=Q(status__in=["present", "late"])),
+            )
+        )
+        total_days   = att["total"] or 0
+        present_days = att["present"] or 0
+        att_percent  = round((present_days / total_days) * 100) if total_days else 0
 
-        # Class ranking
-        class_students = Student.objects.filter(school_class=student.school_class)
-        student_totals = []
-        for s in class_students:
-            s_results = Result.objects.filter(student=s, term=term, year=year)
-            student_totals.append({
-                "student_id": s.id,
-                "total":      sum(r.score or 0 for r in s_results),
-            })
+        # ── Ranking — single aggregated query, no N+1 ────────────────────
+        if show_position and student.school_class:
+            ranked   = rank_students(student.school_class, term, year)
+            position = get_student_position(ranked, student.id)
+            out_of   = len(ranked)
+        else:
+            ranked   = []
+            position = None
+            out_of   = None
 
-        ranked   = sorted(student_totals, key=lambda x: x["total"], reverse=True)
-        position = next(
-            (i + 1 for i, item in enumerate(ranked) if item["student_id"] == student.id),
-            None,
-        ) if show_position else None
+        # ── Promotion fields ──────────────────────────────────────────────
+        promotion_status = None
+        next_class_id    = None
+        next_class_name  = None
+        if has_promo and report:
+            promotion_status = report.promotion_status
+            next_class_id    = report.next_class_id
+            next_class_name  = report.next_class.name if report.next_class else None
 
-        return Response({
+        payload = {
             "student":            student.full_name,
             "admission_number":   student.admission_number,
-            "class":              student.school_class.name if student.school_class else None,
+            "school_class":       student.school_class.name if student.school_class else None,
             "photo":              student.photo.url if student.photo else None,
             "term":               term,
             "year":               year,
@@ -172,31 +239,24 @@ class StudentReportView(APIView):
             "subjects_failed":    failed,
 
             "position":           position,
-            "position_formatted": format_position(position),
-            "out_of":             len(ranked) if show_position else None,
+            "position_formatted": fmt_pos(position) if position else None,
+            "out_of":             out_of,
 
             "attendance":         present_days,
             "attendance_total":   total_days,
-            "attendance_percent": round((present_days / total_days) * 100) if total_days else 0,
+            "attendance_percent": att_percent,
 
-            # Remarks
-            "conduct":          report.conduct         if report else None,
-            "interest":         report.interest        if report else None,
-            "teacher_remark":   report.teacher_remark  if report else None,
-
-            # Dates
+            "conduct":          report.conduct        if report else None,
+            "interest":         report.interest       if report else None,
+            "teacher_remark":   report.teacher_remark if report else None,
             "vacation_date":    str(report.vacation_date)   if report and report.vacation_date   else None,
             "resumption_date":  str(report.resumption_date) if report and report.resumption_date else None,
+            "promotion_status": promotion_status,
+            "next_class":       next_class_id,
+            "next_class_name":  next_class_name,
+        }
 
-            # Promotion (fall back to None if the promotion columns are not yet available)
-            "promotion_status": report.promotion_status if has_extended_report_fields and report else None,
-            "next_class":       report.next_class_id    if has_extended_report_fields and report else None,
-            "next_class_name":  (
-                report.next_class.name
-                if has_extended_report_fields and report and report.next_class
-                else None
-            ),
-        })
+        return Response(ReportResponseSerializer(payload).data)
 
     # ── PATCH ─────────────────────────────────────────────────────────────
 
@@ -205,18 +265,15 @@ class StudentReportView(APIView):
         if not term:
             return Response({"error": "term is required"}, status=400)
 
-        student = get_object_or_404(Student, id=student_id)
+        year, err = _parse_year(request.data.get("year"))
+        if err:
+            return Response({"error": err}, status=400)
 
-        year = request.data.get("year")
-        if year is not None and year != "":
-            try:
-                year = int(year)
-            except (TypeError, ValueError):
-                return Response({"error": "year must be a valid integer"}, status=400)
-        else:
-            year = get_current_year()
+        student = get_object_or_404(
+            Student.objects.select_related("school_class"),
+            id=student_id,
+        )
 
-        # year is part of unique_together — include in lookup, not just defaults
         report, _ = Report.objects.get_or_create(
             student=student,
             term=term,
@@ -227,7 +284,8 @@ class StudentReportView(APIView):
             },
         )
 
-        updatable = [
+        NULLABLE_FIELDS = {"vacation_date", "resumption_date", "promotion_status"}
+        UPDATABLE = [
             "conduct",
             "interest",
             "teacher_remark",
@@ -235,28 +293,31 @@ class StudentReportView(APIView):
             "resumption_date",
             "promotion_status",
         ]
+
         changed = []
+        for field in UPDATABLE:
+            if field not in request.data:
+                continue
+            value = request.data[field]
+            if field in NULLABLE_FIELDS and value == "":
+                value = None
+            setattr(report, field, value)
+            changed.append(field)
 
-        for field in updatable:
-            if field in request.data:
-                value = request.data[field]
-                # Coerce empty strings → None for date + nullable char fields
-                if field in ("vacation_date", "resumption_date", "promotion_status") and value == "":
-                    value = None
-                setattr(report, field, value)
-                changed.append(field)
-
-        # next_class is a FK — handle separately
+        # FK — store via _id to avoid extra query
         if "next_class" in request.data:
             nc = request.data["next_class"]
             report.next_class_id = int(nc) if nc else None
-            changed.append("next_class")
+            changed.append("next_class_id")
 
         if changed:
             report.save(update_fields=changed)
 
-        # Refresh so we can return the related name
-        report.refresh_from_db()
+        if HAS_PROMOTION_FIELDS:
+            report.refresh_from_db()
+            next_class_name = report.next_class.name if getattr(report, "next_class", None) else None
+        else:
+            next_class_name = None
 
         return Response({
             "detail":           "Saved.",
@@ -265,7 +326,7 @@ class StudentReportView(APIView):
             "teacher_remark":   report.teacher_remark,
             "vacation_date":    str(report.vacation_date)   if report.vacation_date   else None,
             "resumption_date":  str(report.resumption_date) if report.resumption_date else None,
-            "promotion_status": report.promotion_status,
-            "next_class":       report.next_class_id,
-            "next_class_name":  report.next_class.name if report.next_class else None,
+            "promotion_status": report.promotion_status if HAS_PROMOTION_FIELDS else None,
+            "next_class":       report.next_class_id    if HAS_PROMOTION_FIELDS else None,
+            "next_class_name":  next_class_name,
         })

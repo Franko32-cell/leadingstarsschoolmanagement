@@ -16,14 +16,14 @@ from rest_framework.viewsets import ModelViewSet
 
 from apps.results.models import Result, Report
 from apps.students.models import Student
-from api.grade_utils import get_grade_and_remark, get_thresholds
 from api.serializers.result_serializer import ResultSerializer
+from .grades import get_grade_and_remark, get_thresholds
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Shared grading utilities are imported from api.grade_utils.
+# Shared grading utilities are imported from views.grades.
 # ---------------------------------------------------------------------------
 
 
