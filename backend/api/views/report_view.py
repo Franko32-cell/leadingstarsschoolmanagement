@@ -97,6 +97,66 @@ def _fetch_report(student, term: str, year: int):
         raise
 
 
+def _create_report(student, term: str, year: int, has_promo: bool):
+    base_fields = [
+        "id",
+        "student",
+        "term",
+        "year",
+        "attendance",
+        "attendance_total",
+        "interest",
+        "conduct",
+        "teacher_remark",
+        "vacation_date",
+        "resumption_date",
+    ]
+
+    if has_promo:
+        try:
+            return Report.objects.get_or_create(
+                student=student,
+                term=term,
+                year=year,
+                defaults={
+                    "attendance": 0,
+                    "attendance_total": 1,
+                },
+            )
+        except ProgrammingError as exc:
+            if "promotion_status" in str(exc) or "next_class" in str(exc):
+                report = Report.objects.filter(
+                    student=student,
+                    term=term,
+                    year=year,
+                ).only(*base_fields).first()
+                if not report:
+                    report = Report.objects.create(
+                        student=student,
+                        term=term,
+                        year=year,
+                        attendance=0,
+                        attendance_total=1,
+                    )
+                return report, False
+            raise
+
+    report = Report.objects.filter(
+        student=student,
+        term=term,
+        year=year,
+    ).only(*base_fields).first()
+    if not report:
+        report = Report.objects.create(
+            student=student,
+            term=term,
+            year=year,
+            attendance=0,
+            attendance_total=1,
+        )
+    return report, False
+
+
 # ---------------------------------------------------------------------------
 # Serializer
 # ---------------------------------------------------------------------------
@@ -313,30 +373,7 @@ class StudentReportView(APIView):
             "resumption_date",
         ]
 
-        if HAS_PROMOTION_FIELDS:
-            report, _ = Report.objects.get_or_create(
-                student=student,
-                term=term,
-                year=year,
-                defaults={
-                    "attendance":       0,
-                    "attendance_total": 1,
-                },
-            )
-        else:
-            report = Report.objects.filter(
-                student=student,
-                term=term,
-                year=year,
-            ).only(*base_fields).first()
-            if not report:
-                report = Report.objects.create(
-                    student=student,
-                    term=term,
-                    year=year,
-                    attendance=0,
-                    attendance_total=1,
-                )
+        report, has_promo = _create_report(student, term, year, HAS_PROMOTION_FIELDS)
 
         NULLABLE_FIELDS = {"vacation_date", "resumption_date", "promotion_status"}
         UPDATABLE = [
@@ -366,9 +403,18 @@ class StudentReportView(APIView):
             changed.append("next_class_id")
 
         if changed:
-            report.save(update_fields=changed)
+            try:
+                report.save(update_fields=changed)
+            except ProgrammingError as exc:
+                if "promotion_status" in str(exc) or "next_class" in str(exc):
+                    changed = [field for field in changed if field not in {"promotion_status", "next_class_id"}]
+                    if changed:
+                        report.save(update_fields=changed)
+                    has_promo = False
+                else:
+                    raise
 
-        if HAS_PROMOTION_FIELDS:
+        if has_promo:
             report.refresh_from_db()
             next_class_name = report.next_class.name if getattr(report, "next_class", None) else None
         else:

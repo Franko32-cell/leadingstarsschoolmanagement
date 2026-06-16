@@ -25,6 +25,7 @@ import requests
 from PIL import Image as PilImage, ImageOps
 
 from django.conf import settings
+from django.db import ProgrammingError
 from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -228,7 +229,14 @@ def _fetch_report(student, term: str, year: int):
     qs = Report.objects.filter(student=student, term=term, year=year).only(*report_fields)
     if HAS_PROMOTION_FIELDS:
         qs = qs.select_related("next_class")
-    return qs.first()
+
+    try:
+        return qs.first(), HAS_PROMOTION_FIELDS
+    except ProgrammingError as exc:
+        if "promotion_status" in str(exc) or "next_class" in str(exc):
+            fallback_qs = Report.objects.filter(student=student, term=term, year=year).only(*base_fields)
+            return fallback_qs.first(), False
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +276,7 @@ class StudentReportPDFView(APIView):
             .select_related("subject")
         )
 
-        report = _fetch_report(student, term, year)
+        report, has_promo = _fetch_report(student, term, year)
 
         level         = getattr(student.school_class, "level", "basic_7_9") if student.school_class else "basic_7_9"
         thresholds    = get_thresholds(level)
@@ -327,7 +335,7 @@ class StudentReportPDFView(APIView):
         resumption_date  = getattr(report, "resumption_date",  None) if report else None
         promotion_status = None
         next_class_name  = None
-        if HAS_PROMOTION_FIELDS and report:
+        if has_promo and report:
             promotion_status = report.promotion_status
             next_class_name  = report.next_class.name if report.next_class else None
 
