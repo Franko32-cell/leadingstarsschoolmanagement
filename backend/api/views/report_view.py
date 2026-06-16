@@ -16,6 +16,7 @@ Fixes applied vs previous version:
 
 from django.conf import settings
 from django.db.models import Count, Q
+from django.db.utils import ProgrammingError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -63,13 +64,37 @@ def _fetch_report(student, term: str, year: int):
     """
     Fetches the Report for (student, term, year).
     Returns (report_instance | None, has_promotion_fields: bool).
-    Uses the module-level HAS_PROMOTION_FIELDS flag instead of catching
-    ProgrammingError per request (which could swallow real DB errors).
+    Uses the module-level HAS_PROMOTION_FIELDS flag when the DB schema supports
+    promotion fields, otherwise falls back to a safe field-only query.
     """
-    qs = Report.objects.filter(student=student, term=term, year=year)
+    base_fields = [
+        "id",
+        "student",
+        "term",
+        "year",
+        "attendance",
+        "attendance_total",
+        "interest",
+        "conduct",
+        "teacher_remark",
+        "vacation_date",
+        "resumption_date",
+    ]
+    report_fields = base_fields + (["promotion_status", "next_class"] if HAS_PROMOTION_FIELDS else [])
+
+    qs = Report.objects.filter(student=student, term=term, year=year).only(*report_fields)
     if HAS_PROMOTION_FIELDS:
         qs = qs.select_related("next_class")
-    return qs.first(), HAS_PROMOTION_FIELDS
+
+    try:
+        return qs.first(), HAS_PROMOTION_FIELDS
+    except ProgrammingError as exc:
+        if "promotion_status" in str(exc) or "next_class" in str(exc):
+            fallback_qs = Report.objects.filter(
+                student=student, term=term, year=year
+            ).only(*base_fields)
+            return fallback_qs.first(), False
+        raise
 
 
 # ---------------------------------------------------------------------------
