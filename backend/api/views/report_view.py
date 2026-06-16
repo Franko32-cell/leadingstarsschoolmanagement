@@ -43,6 +43,32 @@ from .grades import (
 
 
 # ---------------------------------------------------------------------------
+# Date Parsing Helper
+# ---------------------------------------------------------------------------
+
+def parse_date_field(date_value) -> object | None:
+    """
+    Parse a date value from the frontend into a proper date object.
+    Handles: ISO format strings (YYYY-MM-DD), datetime objects, and None.
+    Returns None if invalid or empty string.
+    """
+    if not date_value:
+        return None
+    
+    import datetime
+    try:
+        if isinstance(date_value, str):
+            # Django's DateField expects ISO format (YYYY-MM-DD)
+            return datetime.date.fromisoformat(date_value.strip())
+        elif isinstance(date_value, datetime.date):
+            return date_value
+    except (ValueError, AttributeError):
+        pass
+    
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -436,6 +462,9 @@ class StudentReportView(APIView):
             value = request.data[field]
             if field in NULLABLE_FIELDS and value == "":
                 value = None
+            # Parse date fields properly before storing
+            if field in ("vacation_date", "resumption_date"):
+                value = parse_date_field(value)
             setattr(report, field, value)
             changed.append(field)
 
