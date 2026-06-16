@@ -1,11 +1,14 @@
+import logging
+
 from django.conf import settings
+from django.db import IntegrityError
 from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -15,9 +18,13 @@ from apps.results.models import Result, Report
 from apps.students.models import Student
 from api.serializers.result_serializer import ResultSerializer
 
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
-# Grading systems  (grade/remark are NOT stored on the model — computed here)
+# Grading systems
+# grade / remark are NOT stored on the model — they are computed here and
+# exposed via the serializer so the frontend never needs to duplicate logic.
 # ---------------------------------------------------------------------------
 
 GRADE_THRESHOLDS_B79 = [
@@ -85,8 +92,8 @@ def _fmt_position(n: int | None) -> str:
 def recompute_subject_positions(subject_id, term, school_class_id, year):
     """
     Rank all results for a subject+term+class+year by score descending.
-    Tied scores receive the same rank (dense-ish: tied students share rank,
-    next rank skips — e.g. two students tied 2nd means no 3rd).
+    Uses standard competition ranking: tied scores share the same rank and
+    the next rank skips (1, 1, 3, 4 …).
     """
     results = list(
         Result.objects.filter(
@@ -98,7 +105,7 @@ def recompute_subject_positions(subject_id, term, school_class_id, year):
     )
 
     current_rank = 0
-    prev_score   = object()  # sentinel
+    prev_score   = object()  # sentinel — never equals a real score
 
     for i, r in enumerate(results):
         if r.score != prev_score:
@@ -110,7 +117,7 @@ def recompute_subject_positions(subject_id, term, school_class_id, year):
 
 
 def _assign_ranks(rows: list[dict], key: str = "total_score") -> None:
-    """Standard competition ranking (1, 1, 3, 4…) by descending key value."""
+    """Standard competition ranking (1, 1, 3, 4 …) by descending key value."""
     current_rank = 0
     prev_value   = object()
     for i, row in enumerate(rows):
@@ -160,7 +167,7 @@ class ResultViewSet(ModelViewSet):
         )
 
     # ------------------------------------------------------------------
-    # Bulk upsert  — PARTIAL SAVE SAFE + YEAR AWARE
+    # Bulk upsert — partial-save safe + year-aware
     # ------------------------------------------------------------------
 
     @action(detail=False, methods=["post"], url_path="bulk-save")
@@ -170,7 +177,7 @@ class ResultViewSet(ModelViewSet):
         {reopen, ca, exams}. Fields that are omitted or None are preserved
         from the existing database row — they are NOT zeroed out.
 
-        The unique lookup key is: student + subject + term + year
+        Unique lookup key: student + subject + term + year.
         """
         records = request.data if isinstance(request.data, list) else [request.data]
         saved   = []
@@ -189,7 +196,6 @@ class ResultViewSet(ModelViewSet):
                 continue
 
             try:
-                # Fetch the existing row so we can do a true partial update
                 existing = Result.objects.filter(
                     student_id=record["student"],
                     subject_id=record["subject"],
@@ -204,9 +210,7 @@ class ResultViewSet(ModelViewSet):
                 else:
                     school_class_id = None
 
-                defaults = {
-                    "school_class_id": school_class_id,
-                }
+                defaults = {"school_class_id": school_class_id}
 
                 # Only overwrite a component if the caller actually sent it
                 # (not None and not an empty string). This preserves previously-
@@ -216,7 +220,6 @@ class ResultViewSet(ModelViewSet):
                     if val is not None and val != "":
                         defaults[field] = float(val)
                     elif existing:
-                        # Keep the stored value — do NOT coerce to 0
                         defaults[field] = getattr(existing, field)
                     else:
                         defaults[field] = 0.0
@@ -230,10 +233,15 @@ class ResultViewSet(ModelViewSet):
                 )
                 saved.append(instance.id)
 
-            except Exception as exc:
+            except IntegrityError as exc:
                 errors.append({"record": record, "error": str(exc)})
+            except (TypeError, ValueError) as exc:
+                errors.append({"record": record, "error": str(exc)})
+            except Exception as exc:
+                logger.exception("Unexpected error in bulk_save for record %s", record)
+                errors.append({"record": record, "error": "Unexpected server error."})
 
-        # Recompute positions for all affected (subject, term, class, year) combos
+        # Recompute positions for every affected (subject, term, class, year) combo
         combos = {
             (
                 r["subject"],
@@ -255,14 +263,14 @@ class ResultViewSet(ModelViewSet):
         return Response({"saved": len(saved), "errors": errors}, status=response_status)
 
     # ------------------------------------------------------------------
-    # Class summary (ranked) — year aware
+    # Class summary (ranked) — year-aware
     # ------------------------------------------------------------------
 
     @action(detail=False, methods=["get"], url_path="summary")
     def summary(self, request):
         school_class = request.query_params.get("school_class")
         term         = request.query_params.get("term")
-        year         = request.query_params.get("year")  # ← now respected
+        year         = request.query_params.get("year")
 
         if not school_class or not term:
             return Response(
@@ -281,7 +289,7 @@ class ResultViewSet(ModelViewSet):
         student_map: dict = {}
 
         for r in qs:
-            sid = r.student.id
+            sid        = r.student.id
             level      = getattr(r.student.school_class, "level", "basic_7_9") if r.student.school_class else "basic_7_9"
             thresholds = get_thresholds(level)
             score      = r.score or 0
@@ -338,7 +346,7 @@ class ResultViewSet(ModelViewSet):
 
 
 # ---------------------------------------------------------------------------
-# Per-student report card — year aware
+# Per-student report card — year-aware
 # ---------------------------------------------------------------------------
 
 class StudentReportView(APIView):
@@ -346,7 +354,7 @@ class StudentReportView(APIView):
 
     def get(self, request, student_id):
         term = request.query_params.get("term")
-        year = request.query_params.get("year")   # optional; defaults to latest
+        year = request.query_params.get("year")
 
         if not term:
             raise ValidationError({"error": "term is required"})
@@ -387,9 +395,13 @@ class StudentReportView(APIView):
         subject_count = len(subjects)
         average       = round(total_score / subject_count, 1) if subject_count else 0
 
-        # Class ranking — scoped to same year if provided
+        # FIX: filter Result rows by school_class as well, not just the student's
+        # current class FK. This prevents results from a previous class (before a
+        # transfer) from inflating totals and distorting the class ranking.
         class_totals_qs = Result.objects.filter(
-            student__school_class=student.school_class, term=term
+            student__school_class=student.school_class,
+            school_class=student.school_class,   # ← added: must match Result.school_class too
+            term=term,
         ).values("student_id").annotate(total=Sum("score"))
 
         if year:
@@ -404,7 +416,6 @@ class StudentReportView(APIView):
             None,
         )
 
-        # show_position flag: only expose ranking if the class has > 1 student
         show_position = len(ranked) > 1
 
         report = Report.objects.filter(student=student, term=term).first()
@@ -436,7 +447,7 @@ class StudentReportView(APIView):
                 if report and report.attendance_total
                 else None
             ),
-            "interest":           report.interest         if report else None,
-            "conduct":            report.conduct          if report else None,
-            "teacher_remark":     report.teacher_remark   if report else None,
+            "interest":       report.interest       if report else None,
+            "conduct":        report.conduct        if report else None,
+            "teacher_remark": report.teacher_remark if report else None,
         })
