@@ -29,6 +29,7 @@ import requests
 from apps.students.models import Student
 from apps.results.models import Result, Report
 from apps.attendance.models import Attendance
+from api.grade_utils import get_grade_and_remark, get_thresholds
 
 
 # ---------------------------------------------------------------------------
@@ -108,23 +109,6 @@ INTERP_ROWS_B16 = [
     ("80-89: B – VERY GOOD",  "50-54: E – AVERAGE",      "35-39: E4 – LOWER" ),
     ("60-79: C – GOOD",       "45-49: E2 – BELOW AVG",   "0-34: E5 – LOWEST" ),
 ]
-
-
-def get_thresholds(level: str) -> list:
-    if level in ("basic_1_6", "nursery_kg"):
-        return GRADE_THRESHOLDS_B16
-    return GRADE_THRESHOLDS_B79
-
-
-def get_grade_and_remark(score: float, thresholds: list) -> tuple:
-    for threshold, grade, remark in thresholds:
-        if score >= threshold:
-            return grade, remark
-    return thresholds[-1][1], thresholds[-1][2]
-
-
-def get_overall_grade(avg: float, thresholds: list) -> str:
-    return get_grade_and_remark(avg, thresholds)[0]
 
 
 def fmt_pos(n):
