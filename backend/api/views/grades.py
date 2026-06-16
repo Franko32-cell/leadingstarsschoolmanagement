@@ -133,8 +133,8 @@ def rank_students(school_class, term: str, year: int) -> list[dict]:
         .filter(school_class=school_class)
         .annotate(
             total=Sum(
-                "result__score",
-                filter=Q(result__term=term, result__year=year),
+                "results__score",
+                filter=Q(results__term=term, results__year=year),
             )
         )
         .order_by("-total")
