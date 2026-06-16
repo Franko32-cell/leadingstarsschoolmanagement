@@ -10,12 +10,15 @@ const TERMS = [
   { value: "term3", label: "Term 3" },
 ];
 
-// FIX: Single source of truth — update here when term changes
 const CURRENT_TERM = "term3";
 const CURRENT_YEAR = 2026;
 
 const YEARS = [2026, 2025, 2024, 2023, 2022];
 
+// Grade/remark display map — used for colours and labels only.
+// The authoritative grade+remark values now come from the API (ResultSerializer),
+// so computeGrade() is only used for the live preview inside the modal before
+// a score is saved (i.e. we still need it locally for instant feedback).
 const GRADE_REMARK = {
   "1":  { label: "HIGHEST",       color: "#16a34a" },
   "2":  { label: "HIGHER",        color: "#059669" },
@@ -43,6 +46,8 @@ const computeScore = (reopen, ca, exams) => {
   return Math.round((r + c + e) * 10) / 10;
 };
 
+// Used only for the live unsaved preview in table rows.
+// The server-returned grade is used for anything that has been saved.
 const computeGrade = (score, level = "basic_7_9") => {
   if (level === "basic_7_9") {
     if (score >= 90) return "1"; if (score >= 80) return "2";
@@ -70,29 +75,29 @@ const fmtPos = (n) => {
 };
 
 const GRADE_SCALE_B79 = [
-  { range: "90–100", grade: "1",  remark: "HIGHEST" },
-  { range: "80–89",  grade: "2",  remark: "HIGHER" },
-  { range: "60–79",  grade: "3",  remark: "HIGH" },
-  { range: "55–59",  grade: "4",  remark: "HIGH AVG" },
-  { range: "50–54",  grade: "5",  remark: "AVERAGE" },
-  { range: "45–49",  grade: "6",  remark: "LOW AVG" },
-  { range: "40–44",  grade: "7",  remark: "LOW" },
-  { range: "35–39",  grade: "8",  remark: "LOWER" },
-  { range: "0–34",   grade: "9",  remark: "LOWEST" },
+  { range: "90–100", grade: "1",  remark: "HIGHEST"    },
+  { range: "80–89",  grade: "2",  remark: "HIGHER"     },
+  { range: "60–79",  grade: "3",  remark: "HIGH"       },
+  { range: "55–59",  grade: "4",  remark: "HIGH AVG"   },
+  { range: "50–54",  grade: "5",  remark: "AVERAGE"    },
+  { range: "45–49",  grade: "6",  remark: "LOW AVG"    },
+  { range: "40–44",  grade: "7",  remark: "LOW"        },
+  { range: "35–39",  grade: "8",  remark: "LOWER"      },
+  { range: "0–34",   grade: "9",  remark: "LOWEST"     },
 ];
 const GRADE_SCALE_B16 = [
-  { range: "90–100", grade: "A",  remark: "EXCELLENT" },
-  { range: "80–89",  grade: "B",  remark: "VERY GOOD" },
-  { range: "60–79",  grade: "C",  remark: "GOOD" },
-  { range: "55–59",  grade: "D",  remark: "HIGH AVG" },
-  { range: "45–49",  grade: "E2", remark: "BELOW AVG" },
-  { range: "40–44",  grade: "E3", remark: "LOW" },
-  { range: "35–39",  grade: "E4", remark: "LOWER" },
-  { range: "0–34",   grade: "E5", remark: "LOWEST" },
+  { range: "90–100", grade: "A",  remark: "EXCELLENT"  },
+  { range: "80–89",  grade: "B",  remark: "VERY GOOD"  },
+  { range: "60–79",  grade: "C",  remark: "GOOD"       },
+  { range: "55–59",  grade: "D",  remark: "HIGH AVG"   },
+  { range: "45–49",  grade: "E2", remark: "BELOW AVG"  },
+  { range: "40–44",  grade: "E3", remark: "LOW"        },
+  { range: "35–39",  grade: "E4", remark: "LOWER"      },
+  { range: "0–34",   grade: "E5", remark: "LOWEST"     },
 ];
 
 /* ─────────────────────────────────────────────
-   Score Breakdown Helpers
+   Score breakdown helpers
 ───────────────────────────────────────────── */
 const calcReopenScore = (b) => {
   const reopen = Math.min(10, parseFloat(b.reopen_raw) || 0);
@@ -107,10 +112,13 @@ const calcCAonly = (b) => {
   return Math.round(((hw + cw + ct) / 110) * 25 * 10) / 10;
 };
 
-const calcMGTScore = (b) => Math.round(Math.min(15, parseFloat(b.mgt_raw) || 0) * 10) / 10;
-const calcCAScore  = (b) => Math.round((calcCAonly(b) + calcMGTScore(b)) * 10) / 10;
-const calcExamsScore = (b) =>
-  Math.round(((parseFloat(b.exam_raw) || 0) / 100) * 40 * 10) / 10;
+const calcMGTScore  = (b) => Math.round(Math.min(15, parseFloat(b.mgt_raw) || 0) * 10) / 10;
+const calcCAScore   = (b) => Math.round((calcCAonly(b) + calcMGTScore(b)) * 10) / 10;
+const calcExamsScore = (b) => Math.round(((parseFloat(b.exam_raw) || 0) / 100) * 40 * 10) / 10;
+
+const getReopenBreakdown = (b) => b ? `${parseFloat(b.reopen_raw)||0}+${parseFloat(b.rda)||0}` : null;
+const getCABreakdown     = (b) => b ? `CA:${calcCAonly(b).toFixed(1)} MGT:${parseFloat(b.mgt_raw)||0}` : null;
+const getExamsBreakdown  = (b) => b ? `raw:${parseFloat(b.exam_raw)||0}` : null;
 
 /* ─────────────────────────────────────────────
    Styles
@@ -155,7 +163,6 @@ const STYLES = `
     color: var(--steel);
   }
 
-  /* ── Header ── */
   .res-header {
     background: var(--ink);
     padding: 0 28px;
@@ -182,19 +189,15 @@ const STYLES = `
     border-radius:6px; padding:3px 10px;
     color:rgba(255,255,255,.55); font-size:11.5px;
   }
-  /* Current term badge in header */
   .res-header-term-badge {
     background: linear-gradient(135deg,rgba(43,92,230,.5),rgba(99,102,241,.5));
     border:1px solid rgba(99,102,241,.4);
     border-radius:6px; padding:3px 10px;
-    color:#a5b4fc; font-size:11px; font-weight:700;
-    letter-spacing:.3px;
+    color:#a5b4fc; font-size:11px; font-weight:700; letter-spacing:.3px;
   }
 
-  /* ── Body ── */
   .res-body { padding:24px 28px 60px; max-width:1320px; }
 
-  /* ── Filters ── */
   .res-filters {
     background:var(--white); border-radius:var(--radius);
     padding:16px 20px;
@@ -219,11 +222,9 @@ const STYLES = `
     cursor:pointer; transition:border-color .15s,box-shadow .15s;
   }
   .res-select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(43,92,230,.1); }
-  .res-select-active { border-color:var(--blue); background-color:var(--blue-l); color:var(--blue-d); }
-  /* Current term/year highlight */
+  .res-select-active  { border-color:var(--blue); background-color:var(--blue-l); color:var(--blue-d); }
   .res-select-current { border-color:#6366f1; background-color:#f5f3ff; color:#4338ca; }
 
-  /* ── Tabs ── */
   .res-tabs {
     display:flex; gap:3px;
     background:var(--white); border-radius:10px; padding:4px;
@@ -241,7 +242,6 @@ const STYLES = `
   .res-tab:hover { color:var(--ink-2); background:var(--frost); }
   .res-tab-active { background:var(--ink); color:#fff; font-weight:700; }
 
-  /* ── Toast ── */
   .res-toast {
     position:fixed; top:72px; right:20px;
     z-index:9999; display:flex; flex-direction:column; gap:8px;
@@ -267,7 +267,6 @@ const STYLES = `
   .res-toast-info    .res-toast-icon { background:var(--blue); color:#fff; }
   @keyframes resSlideIn { from{opacity:0;transform:translateX(16px)} to{opacity:1;transform:translateX(0)} }
 
-  /* ── Info bar ── */
   .res-info-bar {
     display:flex; align-items:center; justify-content:space-between;
     margin-bottom:14px; flex-wrap:wrap; gap:10px;
@@ -284,7 +283,6 @@ const STYLES = `
   .res-badge-teal   { background:var(--teal-l);   color:#164e63; }
   .res-badge-violet { background:var(--violet-l); color:#5b21b6; }
 
-  /* ── Table card ── */
   .res-table-card {
     background:var(--white); border-radius:var(--radius);
     box-shadow:var(--shadow-sm); border:1px solid var(--line);
@@ -310,7 +308,6 @@ const STYLES = `
   .res-table td { padding:9px 14px; text-align:center; color:var(--steel); vertical-align:middle; }
   .res-table td:nth-child(2) { text-align:left; }
 
-  /* ── Score cell ── */
   .res-score-cell { display:flex; flex-direction:column; align-items:center; gap:3px; }
   .res-score-btn {
     min-width:68px; padding:6px 10px; border-radius:8px;
@@ -340,10 +337,9 @@ const STYLES = `
     font-size:11px; font-weight:700; letter-spacing:.3px;
     font-family:'JetBrains Mono',monospace;
   }
-  .res-total { font-family:'JetBrains Mono',monospace; font-weight:700; font-size:14px; color:var(--blue); }
+  .res-total      { font-family:'JetBrains Mono',monospace; font-weight:700; font-size:14px; color:var(--blue); }
   .res-total-dash { color:#cbd5e1; }
 
-  /* ── Student name cell ── */
   .res-student-avatar {
     width:30px; height:30px; border-radius:50%;
     display:flex; align-items:center; justify-content:center;
@@ -355,7 +351,6 @@ const STYLES = `
   .res-saved-dot    { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--blue); }
   .res-dirty-dot-sm { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--amber); }
 
-  /* ── Action buttons ── */
   .res-btn-delete {
     padding:4px 10px; border-radius:6px;
     font-size:11.5px; font-weight:600;
@@ -389,7 +384,6 @@ const STYLES = `
     margin-top:16px; flex-wrap:wrap; gap:12px;
   }
 
-  /* ── Save dirty button ── */
   .res-btn-save-dirty {
     display:flex; align-items:center; gap:8px;
     background:linear-gradient(135deg,#f59e0b,#d97706);
@@ -402,7 +396,6 @@ const STYLES = `
   .res-btn-save-dirty:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 6px 20px rgba(217,119,6,.4); }
   .res-btn-save-dirty:disabled { opacity:.5; cursor:not-allowed; }
 
-  /* ── Legend ── */
   .res-legend {
     display:flex; flex-wrap:wrap; gap:6px;
     margin-top:14px; padding:14px 16px;
@@ -416,7 +409,6 @@ const STYLES = `
   }
   .res-legend-range { font-family:'JetBrains Mono',monospace; color:var(--muted); font-size:11px; }
 
-  /* ── Empty / Loading ── */
   .res-empty {
     background:var(--white); border-radius:var(--radius);
     padding:64px 20px; text-align:center;
@@ -434,7 +426,6 @@ const STYLES = `
   .res-skeleton { height:14px; border-radius:6px; background:linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%); background-size:200% 100%; animation:resShimmer 1.4s infinite; }
   @keyframes resShimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 
-  /* ── Score guide ── */
   .res-score-guide {
     display:flex; gap:8px; flex-wrap:wrap;
     margin-bottom:14px; align-items:center;
@@ -447,7 +438,6 @@ const STYLES = `
   }
   .res-score-guide-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
 
-  /* ── Summary ── */
   .res-summary-table { width:100%; border-collapse:collapse; font-size:13.5px; }
   .res-summary-table thead tr { background:var(--ink-2); }
   .res-summary-table thead th { padding:11px 14px; color:rgba(255,255,255,.45); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; }
@@ -466,7 +456,6 @@ const STYLES = `
   .res-sub-table tbody td { padding:8px 12px; text-align:center; color:#475569; }
   .res-sub-table tbody td:first-child { text-align:left; font-weight:500; color:var(--ink-2); }
 
-  /* ── Modal ── */
   .res-modal-backdrop {
     position:fixed; inset:0;
     background:rgba(12,17,23,.6); backdrop-filter:blur(5px);
@@ -488,7 +477,7 @@ const STYLES = `
     background:var(--ink-2);
   }
   .res-modal-header-left { display:flex; flex-direction:column; gap:2px; }
-  .res-modal-title { font-size:15px; font-weight:700; color:#fff; }
+  .res-modal-title    { font-size:15px; font-weight:700; color:#fff; }
   .res-modal-subtitle { font-size:12px; color:rgba(255,255,255,.4); }
   .res-modal-close {
     width:30px; height:30px; border-radius:8px;
@@ -524,12 +513,12 @@ const STYLES = `
     border-radius:12px; padding:14px 18px;
     display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
   }
-  .res-modal-preview-item { display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .res-modal-preview-item  { display:flex; flex-direction:column; align-items:center; gap:3px; }
   .res-modal-preview-value { font-family:'JetBrains Mono',monospace; font-size:20px; font-weight:700; color:#fff; line-height:1; }
   .res-modal-preview-label { font-size:10px; color:rgba(255,255,255,.4); font-weight:500; text-transform:uppercase; letter-spacing:.5px; }
   .res-modal-preview-arrow { color:rgba(255,255,255,.3); font-size:16px; }
   .res-modal-preview-final { font-family:'JetBrains Mono',monospace; font-size:26px; font-weight:800; color:#60a5fa; line-height:1; }
-  .res-modal-preview-max { font-size:11px; color:rgba(255,255,255,.4); font-weight:500; }
+  .res-modal-preview-max   { font-size:11px; color:rgba(255,255,255,.4); font-weight:500; }
   .res-modal-footer { padding:14px 22px 20px; display:flex; gap:10px; justify-content:flex-end; border-top:1px solid var(--line); }
   .res-modal-btn-cancel {
     padding:9px 20px; border-radius:9px;
@@ -549,13 +538,12 @@ const STYLES = `
   }
   .res-modal-btn-apply:hover { background:var(--blue-d); transform:translateY(-1px); box-shadow:0 4px 14px rgba(43,92,230,.3); }
   .res-divider { height:1px; background:var(--line); margin:0 -22px; }
-  .res-pill { display:inline-flex; align-items:center; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700; }
-  .res-pill-blue   { background:var(--blue-l);   color:var(--blue-d); }
-  .res-pill-green  { background:var(--green-l);  color:#166534; }
-  .res-pill-purple { background:var(--violet-l); color:var(--violet); }
-  .res-pill-teal   { background:var(--teal-l);   color:#164e63; }
+  .res-pill         { display:inline-flex; align-items:center; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700; }
+  .res-pill-blue    { background:var(--blue-l);   color:var(--blue-d); }
+  .res-pill-green   { background:var(--green-l);  color:#166534; }
+  .res-pill-purple  { background:var(--violet-l); color:var(--violet); }
+  .res-pill-teal    { background:var(--teal-l);   color:#164e63; }
 
-  /* ── Dirty banner ── */
   .res-dirty-banner {
     background:linear-gradient(135deg,#fffbeb,#fef3c7);
     border:1px solid #fcd34d; border-radius:11px;
@@ -568,7 +556,6 @@ const STYLES = `
   .res-dirty-banner-text { font-size:13.5px; font-weight:600; color:#92400e; }
   .res-dirty-banner-sub  { font-size:12px; color:#b45309; margin-top:1px; }
 
-  /* ── Quick-fill toolbar ── */
   .res-quick-fill {
     display:flex; gap:8px; align-items:center; flex-wrap:wrap;
     padding:10px 14px;
@@ -616,7 +603,7 @@ function ReopenModal({ studentName, initial, savedScore, onApply, onClose }) {
     reopen_raw: initial?.reopen_raw ?? "",
     rda:        initial?.rda        ?? "",
   });
-  const set = (k, v) => setVals(p => ({ ...p, [k]: v }));
+  const set   = (k, v) => setVals(p => ({ ...p, [k]: v }));
   const score = calcReopenScore(vals);
 
   return (
@@ -699,7 +686,8 @@ function CAModal({ studentName, initial, savedScore, onApply, onClose }) {
 
   const totalField = (val, max) => (
     <div className="res-modal-field">
-      <input readOnly value={val.toFixed(1)} style={{background:"var(--blue-l)",borderColor:"#93c5fd",color:"var(--blue-d)",cursor:"default",fontWeight:"700"}} />
+      <input readOnly value={val.toFixed(1)}
+        style={{background:"var(--blue-l)",borderColor:"#93c5fd",color:"var(--blue-d)",cursor:"default",fontWeight:"700"}} />
       <label style={{color:"#94a3b8",fontSize:"10px",textAlign:"center"}}>/{max}</label>
     </div>
   );
@@ -890,13 +878,6 @@ function ExamsModal({ studentName, initial, savedScore, onApply, onClose }) {
 }
 
 /* ─────────────────────────────────────────────
-   Breakdown label helpers
-───────────────────────────────────────────── */
-const getReopenBreakdown = (b) => b ? `${parseFloat(b.reopen_raw)||0}+${parseFloat(b.rda)||0}` : null;
-const getCABreakdown     = (b) => b ? `CA:${calcCAonly(b).toFixed(1)} MGT:${parseFloat(b.mgt_raw)||0}` : null;
-const getExamsBreakdown  = (b) => b ? `raw:${parseFloat(b.exam_raw)||0}` : null;
-
-/* ─────────────────────────────────────────────
    Main component
 ───────────────────────────────────────────── */
 const Results = () => {
@@ -910,39 +891,52 @@ const Results = () => {
 
   const { toasts, add: toast } = useToast();
 
-  const [tab, setTab]                         = useState("Enter Results");
-  const [classes, setClasses]                 = useState([]);
-  const [subjects, setSubjects]               = useState([]);
-  const [students, setStudents]               = useState([]);
-  const [selectedClass, setSelectedClass]     = useState("");
-  // FIX: default to current term and year
-  const [selectedTerm, setSelectedTerm]       = useState(CURRENT_TERM);
-  const [selectedYear, setSelectedYear]       = useState(String(CURRENT_YEAR));
-  const [selectedSubject, setSelectedSubject] = useState("");
-  const [classLevel, setClassLevel]           = useState("basic_7_9");
-
-  const [scores, setScores]           = useState({});
-  const [savedScores, setSavedScores] = useState({});
-  const [breakdowns, setBreakdowns]   = useState({});
-  const [existingIds, setExistingIds] = useState({});
-
-  const [saving, setSaving]                   = useState(false);
-  const [loadingStudents, setLoadingStudents] = useState(false);
-  const [loadingScores, setLoadingScores]     = useState(false);
-  const [deleting, setDeleting]               = useState(null);
-  const [summary, setSummary]                 = useState([]);
-  const [loadingSummary, setLoadingSummary]   = useState(false);
+  /* ── UI state ── */
+  const [tab, setTab]               = useState("Enter Results");
+  const [classes, setClasses]       = useState([]);
+  const [subjects, setSubjects]     = useState([]);
+  const [students, setStudents]     = useState([]);
+  const [modal, setModal]           = useState(null);
   const [expandedStudent, setExpandedStudent] = useState(null);
-  const [modal, setModal]                     = useState(null);
 
-  // Ref to track the "snapshot" savedScores at the time of the last load
-  // so the dirty-check is stable even before the first server response.
-  const savedScoresRef = useRef({});
+  /* ── Filter state — default to current term/year ── */
+  const [selectedClass,   setSelectedClass]   = useState("");
+  const [selectedTerm,    setSelectedTerm]    = useState(CURRENT_TERM);
+  const [selectedYear,    setSelectedYear]    = useState(String(CURRENT_YEAR));
+  const [selectedSubject, setSelectedSubject] = useState("");
+  const [classLevel,      setClassLevel]      = useState("basic_7_9");
 
-  /* ── Load classes & subjects ── */
+  /* ── Score state ── */
+  const [scores,      setScores]      = useState({});   // live (may be unsaved)
+  const [savedScores, setSavedScores] = useState({});   // last values confirmed by server
+  const [breakdowns,  setBreakdowns]  = useState({});   // modal sub-field values
+  const [existingIds, setExistingIds] = useState({});   // studentId → result pk
+
+  /*
+   * touchedStudents — tracks which students the teacher has actively edited
+   * in this session (opened a modal and applied a value).
+   * These rows are protected from being overwritten when loadExistingScores
+   * re-fetches in the background (e.g. after switching subject then back).
+   * Cleared on filter change and after a successful save.
+   */
+  const [touchedStudents, setTouchedStudents] = useState(new Set());
+
+  /* ── Loading / saving flags ── */
+  const [saving,          setSaving]          = useState(false);
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [loadingScores,   setLoadingScores]   = useState(false);
+  const [deleting,        setDeleting]        = useState(null);
+  const [summary,         setSummary]         = useState([]);
+  const [loadingSummary,  setLoadingSummary]  = useState(false);
+
+  /* ── Load classes & subjects once ── */
   useEffect(() => {
-    API.get("/classes/").then(r  => setClasses(r.data.results  || r.data)).catch(() => toast("Failed to load classes.", "error"));
-    API.get("/subjects/").then(r => setSubjects(r.data.results || r.data)).catch(() => toast("Failed to load subjects.", "error"));
+    API.get("/classes/")
+      .then(r  => setClasses(r.data.results  || r.data))
+      .catch(() => toast("Failed to load classes.", "error"));
+    API.get("/subjects/")
+      .then(r => setSubjects(r.data.results || r.data))
+      .catch(() => toast("Failed to load subjects.", "error"));
   }, []);
 
   /* ── Fetch students when class changes ── */
@@ -955,20 +949,57 @@ const Results = () => {
       .finally(() => setLoadingStudents(false));
   }, [selectedClass]);
 
-  /* ── Load existing scores — MERGE strategy ── */
-  const loadExistingScores = useCallback(async (studentsOverride) => {
-    if (!selectedClass || !selectedTerm || !selectedSubject) return;
-    const studentList = studentsOverride || students;
-    if (!studentList.length) return;
+  /*
+   * ── FIX: Reset ALL score state when filters change ──────────────────────
+   * This is the clean-slate moment. No local edits survive a filter change.
+   * Runs whenever class, subject, term, or year changes.
+   */
+  useEffect(() => {
+    setScores({});
+    setSavedScores({});
+    setExistingIds({});
+    setBreakdowns({});
+    setTouchedStudents(new Set());
+  }, [selectedClass, selectedSubject, selectedTerm, selectedYear]);
+
+  /*
+   * ── FIX: Single load effect — fires when students + all filters are ready ──
+   * Replaces the previous two effects that both fired on mount, causing a
+   * double fetch. Students are included in the dependency array so the scores
+   * load automatically when the student list first arrives after a class change.
+   */
+  useEffect(() => {
+    if (!selectedClass || !selectedSubject || !selectedTerm || !students.length) return;
+    loadExistingScores(students);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students, selectedSubject, selectedTerm, selectedYear]);
+
+  /*
+   * ── FIX: loadExistingScores — clean merge without ref ───────────────────
+   *
+   * Previous version used savedScoresRef to detect "what was the baseline
+   * before this fetch". That ref was mutated synchronously but read inside a
+   * setState updater that closes over it asynchronously — a classic stale-
+   * closure race.
+   *
+   * New approach:
+   *   • Build newSaved from the server response.
+   *   • For untouched students → server value wins (seamless load).
+   *   • For touched students  → keep whatever the teacher typed, fall back to
+   *     server only for sub-fields the teacher left empty.
+   *   • Pass newSaved directly into the setScores updater — no ref needed.
+   */
+  const loadExistingScores = useCallback(async (studentList) => {
+    if (!selectedClass || !selectedTerm || !selectedSubject || !studentList?.length) return;
 
     setLoadingScores(true);
     try {
-      // FIX: always pass year param
       const res = await API.get(
         `/results/?school_class=${selectedClass}&term=${selectedTerm}&subject=${selectedSubject}&year=${selectedYear}`
       );
       const records = res.data.results || res.data;
 
+      // Build a map of what the server has
       const serverMap = {};
       const idMap     = {};
       records.forEach(r => {
@@ -980,80 +1011,85 @@ const Results = () => {
         idMap[r.student] = r.id;
       });
 
-      // Capture server values as the new "saved" baseline
+      // The "saved" baseline is exactly what the server returned
       const newSaved = {};
       studentList.forEach(s => {
         newSaved[s.id] = serverMap[s.id] || { reopen: "", ca: "", exams: "" };
       });
       setSavedScores(newSaved);
-      savedScoresRef.current = newSaved;
 
-      // Merge: keep locally-entered values that differ from the *previous* saved baseline
+      /*
+       * Merge: server wins for untouched students.
+       * Touched students keep their local values; the server fills in any
+       * component the teacher hasn't entered yet (e.g. they entered reopen
+       * but not exams — exams comes from the server).
+       *
+       * We capture `touchedStudents` from the closure at call-time, which is
+       * correct: the Set reflects which students were touched before this
+       * fetch was triggered.
+       */
       setScores(prev => {
         const next = {};
         studentList.forEach(s => {
-          const server   = serverMap[s.id]         || { reopen: "", ca: "", exams: "" };
-          const local    = prev[s.id]              || {};
-          const prevSaved = savedScoresRef.current[s.id] || {};
-          next[s.id] = {
-            reopen: local.reopen !== undefined && String(local.reopen) !== String(prevSaved.reopen) ? local.reopen : server.reopen,
-            ca:     local.ca     !== undefined && String(local.ca)     !== String(prevSaved.ca)     ? local.ca     : server.ca,
-            exams:  local.exams  !== undefined && String(local.exams)  !== String(prevSaved.exams)  ? local.exams  : server.exams,
-          };
+          const server = serverMap[s.id] || { reopen: "", ca: "", exams: "" };
+
+          if (touchedStudents.has(s.id)) {
+            // Teacher has edited this student — protect their work
+            const local = prev[s.id] || {};
+            next[s.id] = {
+              reopen: (local.reopen !== "" && local.reopen !== undefined) ? local.reopen : server.reopen,
+              ca:     (local.ca     !== "" && local.ca     !== undefined) ? local.ca     : server.ca,
+              exams:  (local.exams  !== "" && local.exams  !== undefined) ? local.exams  : server.exams,
+            };
+          } else {
+            // Untouched — server is the source of truth
+            next[s.id] = { ...server };
+          }
         });
         return next;
       });
 
       setExistingIds(idMap);
-      if (records.length > 0)
+
+      if (records.length > 0) {
         toast(`Loaded ${records.length} saved result${records.length !== 1 ? "s" : ""}.`, "info");
+      }
     } catch {
       toast("Failed to load existing scores.", "error");
     } finally {
       setLoadingScores(false);
     }
-  }, [selectedClass, selectedTerm, selectedSubject, selectedYear, students]);
-
-  useEffect(() => {
-    if (!selectedSubject) { setScores({}); setSavedScores({}); setExistingIds({}); return; }
-    if (selectedClass && students.length) loadExistingScores();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSubject, selectedTerm, selectedYear]);
-
-  useEffect(() => {
-    if (students.length && selectedSubject && selectedClass && selectedTerm) {
-      loadExistingScores(students);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [students]);
+  }, [selectedClass, selectedTerm, selectedSubject, selectedYear, touchedStudents]);
 
   /* ── Summary tab ── */
   useEffect(() => {
     if (tab !== "Class Summary" || !selectedClass || !selectedTerm) return;
     setLoadingSummary(true);
-    // FIX: pass year to summary endpoint
     API.get(`/results/summary/?school_class=${selectedClass}&term=${selectedTerm}&year=${selectedYear}`)
       .then(r => setSummary(r.data))
       .catch(() => toast("Failed to load summary.", "error"))
       .finally(() => setLoadingSummary(false));
   }, [tab, selectedClass, selectedTerm, selectedYear]);
 
-  /* ── Handlers ── */
+  /* ── Filter handlers ── */
   const handleClassChange = (e) => {
     const id = e.target.value;
     setSelectedClass(id);
     setSelectedSubject("");
-    setScores({}); setSavedScores({}); setExistingIds({});
-    setStudents([]); setSummary([]);
-    setExpandedStudent(null); setBreakdowns({});
+    setStudents([]);
+    setSummary([]);
+    setExpandedStudent(null);
     const found = classes.find(c => String(c.id) === String(id));
     setClassLevel(found?.level || "basic_7_9");
+    // score state is reset by the filter-change effect above
   };
 
+  /* ── Modal apply handlers — mark student as touched ── */
   const applyReopen = (score, breakdown) => {
     const { studentId } = modal;
     setScores(prev => ({ ...prev, [studentId]: { ...(prev[studentId] || {}), reopen: score } }));
     setBreakdowns(prev => ({ ...prev, [studentId]: { ...(prev[studentId] || {}), reopen: breakdown } }));
+    setTouchedStudents(prev => new Set([...prev, studentId]));
     setModal(null);
   };
 
@@ -1061,6 +1097,7 @@ const Results = () => {
     const { studentId } = modal;
     setScores(prev => ({ ...prev, [studentId]: { ...(prev[studentId] || {}), ca: score } }));
     setBreakdowns(prev => ({ ...prev, [studentId]: { ...(prev[studentId] || {}), ca: breakdown } }));
+    setTouchedStudents(prev => new Set([...prev, studentId]));
     setModal(null);
   };
 
@@ -1068,6 +1105,7 @@ const Results = () => {
     const { studentId } = modal;
     setScores(prev => ({ ...prev, [studentId]: { ...(prev[studentId] || {}), exams: score } }));
     setBreakdowns(prev => ({ ...prev, [studentId]: { ...(prev[studentId] || {}), exams: breakdown } }));
+    setTouchedStudents(prev => new Set([...prev, studentId]));
     setModal(null);
   };
 
@@ -1080,10 +1118,11 @@ const Results = () => {
     try {
       await API.delete(`/results/${id}/`);
       const empty = { reopen: "", ca: "", exams: "" };
-      setScores(prev  => ({ ...prev,  [studentId]: empty }));
-      setSavedScores(prev => ({ ...prev, [studentId]: empty }));
+      setScores(prev      => ({ ...prev,  [studentId]: empty }));
+      setSavedScores(prev => ({ ...prev,  [studentId]: empty }));
       setExistingIds(prev => { const n = { ...prev }; delete n[studentId]; return n; });
       setBreakdowns(prev  => { const n = { ...prev }; delete n[studentId]; return n; });
+      setTouchedStudents(prev => { const n = new Set(prev); n.delete(studentId); return n; });
       toast("Result deleted.", "info");
     } catch {
       toast("Failed to delete result.", "error");
@@ -1092,13 +1131,11 @@ const Results = () => {
     }
   };
 
-  /* ── Submit ──
-     FIX: endpoint is /results/bulk-save/ (matches DRF @action url_path="bulk-save")
-     FIX: always send year in payload
-  ── */
+  /* ── Submit (bulk save) ── */
   const submitResults = async () => {
     if (!selectedClass || !selectedTerm || !selectedSubject) {
-      toast("Please select class, term, and subject.", "error"); return;
+      toast("Please select class, term, and subject.", "error");
+      return;
     }
 
     const records = Object.entries(scores)
@@ -1110,7 +1147,7 @@ const Results = () => {
           subject:      parseInt(selectedSubject, 10),
           school_class: parseInt(selectedClass, 10),
           term:         selectedTerm,
-          year:         parseInt(selectedYear, 10),  // FIX: always send year
+          year:         parseInt(selectedYear, 10),
           // Partial-save safe: only send a field if it has a value; backend preserves the rest
           ...(v.reopen !== "" ? { reopen: parseFloat(v.reopen) } : sv.reopen !== "" ? { reopen: parseFloat(sv.reopen) } : { reopen: 0 }),
           ...(v.ca     !== "" ? { ca:     parseFloat(v.ca)     } : sv.ca     !== "" ? { ca:     parseFloat(sv.ca)     } : { ca:     0 }),
@@ -1118,20 +1155,26 @@ const Results = () => {
         };
       });
 
-    if (!records.length) { toast("No scores entered.", "error"); return; }
+    if (!records.length) {
+      toast("No scores entered.", "error");
+      return;
+    }
 
     setSaving(true);
     try {
-      // FIX: correct endpoint URL — matches @action url_path="bulk-save"
       const res = await API.post("/results/bulk-save/", records);
       const errCount = res.data.errors?.length || 0;
+
       if (errCount === 0) {
         toast(`Saved ${res.data.saved} result${res.data.saved !== 1 ? "s" : ""} successfully.`, "success");
       } else {
         toast(`Saved ${res.data.saved} with ${errCount} error(s).`, "info");
-        if (errCount > 0) console.error("Bulk save errors:", res.data.errors);
+        console.error("Bulk save errors:", res.data.errors);
       }
-      await loadExistingScores();
+
+      // Reload from server — all students are now untouched again
+      await loadExistingScores(students);
+      setTouchedStudents(new Set());  // clear touched after successful save
     } catch (err) {
       toast(err.response?.data?.detail || "Error saving results.", "error");
       console.error("Submit error:", err.response?.data);
@@ -1140,7 +1183,7 @@ const Results = () => {
     }
   };
 
-  /* ── Derived values ── */
+  /* ── Derived dirty state ── */
   const isDirty = (studentId) => {
     const current = scores[studentId]      || {};
     const saved   = savedScores[studentId] || {};
@@ -1159,6 +1202,9 @@ const Results = () => {
   const selectedClassName   = classes.find(c  => String(c.id) === String(selectedClass))?.name   || "";
   const selectedSubjectName = subjects.find(s => String(s.id) === String(selectedSubject))?.name || "";
   const selectedTermLabel   = TERMS.find(t => t.value === selectedTerm)?.label || "";
+  const isCurrentTermYear   = selectedTerm === CURRENT_TERM && selectedYear === String(CURRENT_YEAR);
+
+  const filtersSet = selectedClass && selectedSubject;
 
   const editIcon = (
     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -1172,9 +1218,9 @@ const Results = () => {
     </svg>
   );
 
-  const filtersSet = selectedClass && selectedSubject;
-  const isCurrentTermYear = selectedTerm === CURRENT_TERM && selectedYear === String(CURRENT_YEAR);
-
+  /* ─────────────────────────────────────────────
+     Render
+  ───────────────────────────────────────────── */
   return (
     <div className="res-root">
 
@@ -1321,7 +1367,9 @@ const Results = () => {
                     </div>
                     <button className="res-btn-save-dirty" onClick={submitResults} disabled={saving}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+                        <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+                        <polyline points="17 21 17 13 7 13 7 21"/>
+                        <polyline points="7 3 7 8 15 8"/>
                       </svg>
                       Save {dirtyCount} Change{dirtyCount !== 1 ? "s" : ""}
                     </button>
@@ -1332,7 +1380,10 @@ const Results = () => {
                 <div className="res-info-bar">
                   <div className="res-info-bar-left">
                     <span className="res-badge res-badge-blue">
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+                        <circle cx="9" cy="7" r="4"/>
+                      </svg>
                       {students.length} students
                     </span>
                     {filledCount > 0 && <span className="res-badge res-badge-amber">✏ {filledCount} filled</span>}
@@ -1346,7 +1397,9 @@ const Results = () => {
                     )}
                   </div>
                   <div style={{fontSize:"12px",color:"var(--dim)",display:"flex",alignItems:"center",gap:"6px"}}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>
+                    </svg>
                     Click any score cell to enter breakdown
                   </div>
                 </div>
@@ -1354,10 +1407,10 @@ const Results = () => {
                 {/* Scoring guide */}
                 <div className="res-score-guide">
                   {[
-                    {label:"Re-Open", color:"#3b82f6", detail:"/10 + RDA/10 = /20"},
-                    {label:"CA",      color:"#0891b2", detail:"hw/cw/ct → scaled /25"},
-                    {label:"MGT",     color:"#7c3aed", detail:"direct /15"},
-                    {label:"Exams",   color:"#16a34a", detail:"raw/100 × 40"},
+                    { label:"Re-Open", color:"#3b82f6", detail:"/10 + RDA/10 = /20" },
+                    { label:"CA",      color:"#0891b2", detail:"hw/cw/ct → scaled /25" },
+                    { label:"MGT",     color:"#7c3aed", detail:"direct /15" },
+                    { label:"Exams",   color:"#16a34a", detail:"raw/100 × 40" },
                   ].map(({ label, color, detail }) => (
                     <div key={label} className="res-score-guide-item">
                       <span className="res-score-guide-dot" style={{background:color}}/>
@@ -1371,6 +1424,7 @@ const Results = () => {
                   </div>
                 </div>
 
+                {/* Table */}
                 {loadingStudents ? (
                   <div className="res-table-card">
                     <table className="res-table"><tbody>
@@ -1432,7 +1486,10 @@ const Results = () => {
                               <td>
                                 <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
                                   <div className="res-student-avatar"
-                                    style={{background:`hsl(${(student.id*47)%360},50%,88%)`,color:`hsl(${(student.id*47)%360},50%,35%)`}}>
+                                    style={{
+                                      background:`hsl(${(student.id*47)%360},50%,88%)`,
+                                      color:`hsl(${(student.id*47)%360},50%,35%)`,
+                                    }}>
                                     {name.charAt(0)}
                                   </div>
                                   <div>
@@ -1441,8 +1498,7 @@ const Results = () => {
                                       ? <div className="res-dirty-label"><span className="res-dirty-dot-sm"/>unsaved changes</div>
                                       : isSaved
                                         ? <div className="res-saved-label"><span className="res-saved-dot"/>saved</div>
-                                        : null
-                                    }
+                                        : null}
                                   </div>
                                 </div>
                               </td>
@@ -1452,8 +1508,7 @@ const Results = () => {
                                 <div className="res-score-cell">
                                   <button
                                     className={`res-score-btn ${btnClass("reopen", s.reopen)}`}
-                                    onClick={() => setModal({ type:"reopen", studentId:student.id, studentName:name })}
-                                  >
+                                    onClick={() => setModal({ type:"reopen", studentId:student.id, studentName:name })}>
                                     {dirty("reopen") && <span className="res-dirty-dot"/>}
                                     {s.reopen !== "" && s.reopen !== 0
                                       ? <>{editIcon}{parseFloat(s.reopen).toFixed(1)}</>
@@ -1471,8 +1526,7 @@ const Results = () => {
                                 <div className="res-score-cell">
                                   <button
                                     className={`res-score-btn ${btnClass("ca", s.ca)}`}
-                                    onClick={() => setModal({ type:"ca", studentId:student.id, studentName:name })}
-                                  >
+                                    onClick={() => setModal({ type:"ca", studentId:student.id, studentName:name })}>
                                     {dirty("ca") && <span className="res-dirty-dot"/>}
                                     {s.ca !== "" && s.ca !== 0
                                       ? <>{editIcon}{parseFloat(s.ca).toFixed(1)}</>
@@ -1490,8 +1544,7 @@ const Results = () => {
                                 <div className="res-score-cell">
                                   <button
                                     className={`res-score-btn ${btnClass("exams", s.exams)}`}
-                                    onClick={() => setModal({ type:"exams", studentId:student.id, studentName:name })}
-                                  >
+                                    onClick={() => setModal({ type:"exams", studentId:student.id, studentName:name })}>
                                     {dirty("exams") && <span className="res-dirty-dot"/>}
                                     {s.exams !== "" && s.exams !== 0
                                       ? <>{editIcon}{parseFloat(s.exams).toFixed(1)}</>
@@ -1504,13 +1557,19 @@ const Results = () => {
                                 </div>
                               </td>
 
-                              <td>{total != null ? <span className="res-total">{total}</span> : <span className="res-total-dash">—</span>}</td>
+                              <td>
+                                {total != null
+                                  ? <span className="res-total">{total}</span>
+                                  : <span className="res-total-dash">—</span>}
+                              </td>
                               <td>
                                 {grade
                                   ? <span className="res-grade" style={{background:`${info.color}18`,color:info.color}}>{grade}</span>
                                   : <span style={{color:"#e2e8f0"}}>—</span>}
                               </td>
-                              <td style={{fontSize:"12px",color:info ? info.color : "#cbd5e1"}}>{info ? info.label : "—"}</td>
+                              <td style={{fontSize:"12px",color:info ? info.color : "#cbd5e1"}}>
+                                {info ? info.label : "—"}
+                              </td>
                               <td>
                                 {isSaved && (
                                   <button className="res-btn-delete"
@@ -1535,7 +1594,11 @@ const Results = () => {
                       {gradeScale.map(item => (
                         <div key={item.grade} className="res-legend-item">
                           <span className="res-grade"
-                            style={{background:`${GRADE_REMARK[item.grade]?.color}18`,color:GRADE_REMARK[item.grade]?.color,padding:"1px 6px"}}>
+                            style={{
+                              background:`${GRADE_REMARK[item.grade]?.color}18`,
+                              color:GRADE_REMARK[item.grade]?.color,
+                              padding:"1px 6px",
+                            }}>
                             {item.grade}
                           </span>
                           <span className="res-legend-range">{item.range}</span>
@@ -1611,10 +1674,10 @@ const Results = () => {
                         <tr
                           onClick={() => setExpandedStudent(expandedStudent === row.student_id ? null : row.student_id)}
                           className={expandedStudent === row.student_id ? "res-summary-row-expanded" : ""}
-                          style={{color:"var(--steel)"}}
-                        >
+                          style={{color:"var(--steel)"}}>
                           <td style={{textAlign:"center"}}>
-                            <span className={row.rank===1?"res-rank-1":row.rank===2?"res-rank-2":row.rank===3?"res-rank-3":""}
+                            <span
+                              className={row.rank===1?"res-rank-1":row.rank===2?"res-rank-2":row.rank===3?"res-rank-3":""}
                               style={{fontFamily:"'JetBrains Mono',monospace",fontSize:"13px"}}>
                               {row.rank===1?"🥇":row.rank===2?"🥈":row.rank===3?"🥉":`#${row.rank}`}
                             </span>
@@ -1628,7 +1691,10 @@ const Results = () => {
                           <td style={{textAlign:"center",fontFamily:"'JetBrains Mono',monospace",color:"var(--steel)"}}>{row.average_score}</td>
                           <td style={{textAlign:"center"}}>
                             <span className="res-grade"
-                              style={{background:`${GRADE_REMARK[row.overall_grade]?.color||"#64748b"}18`,color:GRADE_REMARK[row.overall_grade]?.color||"#64748b"}}>
+                              style={{
+                                background:`${GRADE_REMARK[row.overall_grade]?.color||"#64748b"}18`,
+                                color:GRADE_REMARK[row.overall_grade]?.color||"#64748b",
+                              }}>
                               {row.overall_grade}
                             </span>
                           </td>
@@ -1659,7 +1725,16 @@ const Results = () => {
                                           <td>{sub.exams  ?? "—"}</td>
                                           <td style={{fontWeight:"700",color:"var(--blue)",fontFamily:"'JetBrains Mono',monospace"}}>{sub.score ?? "—"}</td>
                                           <td style={{color:"var(--muted)"}}>{fmtPos(sub.subject_position)}</td>
-                                          <td><span className="res-grade" style={{background:info?`${info.color}18`:"#f1f5f9",color:info?.color||"#64748b",fontSize:"11px"}}>{sub.grade ?? "—"}</span></td>
+                                          <td>
+                                            <span className="res-grade"
+                                              style={{
+                                                background:info?`${info.color}18`:"#f1f5f9",
+                                                color:info?.color||"#64748b",
+                                                fontSize:"11px",
+                                              }}>
+                                              {sub.grade ?? "—"}
+                                            </span>
+                                          </td>
                                           <td style={{fontSize:"11.5px",color:info?.color||"#94a3b8"}}>{sub.remark ?? "—"}</td>
                                         </tr>
                                       );
