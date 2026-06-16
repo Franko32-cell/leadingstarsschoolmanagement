@@ -299,15 +299,44 @@ class StudentReportView(APIView):
             id=student_id,
         )
 
-        report, _ = Report.objects.get_or_create(
-            student=student,
-            term=term,
-            year=year,
-            defaults={
-                "attendance":       0,
-                "attendance_total": 1,
-            },
-        )
+        base_fields = [
+            "id",
+            "student",
+            "term",
+            "year",
+            "attendance",
+            "attendance_total",
+            "interest",
+            "conduct",
+            "teacher_remark",
+            "vacation_date",
+            "resumption_date",
+        ]
+
+        if HAS_PROMOTION_FIELDS:
+            report, _ = Report.objects.get_or_create(
+                student=student,
+                term=term,
+                year=year,
+                defaults={
+                    "attendance":       0,
+                    "attendance_total": 1,
+                },
+            )
+        else:
+            report = Report.objects.filter(
+                student=student,
+                term=term,
+                year=year,
+            ).only(*base_fields).first()
+            if not report:
+                report = Report.objects.create(
+                    student=student,
+                    term=term,
+                    year=year,
+                    attendance=0,
+                    attendance_total=1,
+                )
 
         NULLABLE_FIELDS = {"vacation_date", "resumption_date", "promotion_status"}
         UPDATABLE = [
@@ -316,8 +345,9 @@ class StudentReportView(APIView):
             "teacher_remark",
             "vacation_date",
             "resumption_date",
-            "promotion_status",
         ]
+        if HAS_PROMOTION_FIELDS:
+            UPDATABLE.append("promotion_status")
 
         changed = []
         for field in UPDATABLE:
@@ -330,7 +360,7 @@ class StudentReportView(APIView):
             changed.append(field)
 
         # FK — store via _id to avoid extra query
-        if "next_class" in request.data:
+        if HAS_PROMOTION_FIELDS and "next_class" in request.data:
             nc = request.data["next_class"]
             report.next_class_id = int(nc) if nc else None
             changed.append("next_class_id")

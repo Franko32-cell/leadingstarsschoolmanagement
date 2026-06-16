@@ -210,7 +210,22 @@ def section_label_row(para, text: str, col_width: float) -> Table:
 # ---------------------------------------------------------------------------
 
 def _fetch_report(student, term: str, year: int):
-    qs = Report.objects.filter(student=student, term=term, year=year)
+    base_fields = [
+        "id",
+        "student",
+        "term",
+        "year",
+        "attendance",
+        "attendance_total",
+        "interest",
+        "conduct",
+        "teacher_remark",
+        "vacation_date",
+        "resumption_date",
+    ]
+    report_fields = base_fields + (["promotion_status", "next_class"] if HAS_PROMOTION_FIELDS else [])
+
+    qs = Report.objects.filter(student=student, term=term, year=year).only(*report_fields)
     if HAS_PROMOTION_FIELDS:
         qs = qs.select_related("next_class")
     return qs.first()
