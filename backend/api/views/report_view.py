@@ -1,44 +1,39 @@
-"""
-report_view.py - Complete Fixed Version
+"""report_view.py
 Drop-in replacement for: backend/api/views/report_view.py
-
-Fixes applied vs previous version:
-- Replaced buggy `create_report()` return value handling to avoid overwriting `has_promo` flag
-- Employs dynamic model checking and schema queries for 100% reliable Promotion saving/fetching
-- PATCH explicitly refreshes the object to guarantee `next_class_name` returns correctly to React
-- ReportSerializer provides validated data formatting matching frontend property names
 """
-import datetime
+
 from django.conf import settings
 from django.db import ProgrammingError, connection
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
 from rest_framework import serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.attendance.models import Attendance
-from apps.results.models import Report, Result
+from apps.results.models import Result, Report
 from apps.students.models import Student
+from apps.attendance.models import Attendance
 
 from .grades import (
-    HAS_PROMOTION_FIELDS,
+    has_promotion_fields,
     SCHOOL_NAMES,
     TERM_LABELS,
-    fmt_pos,
+    get_thresholds,
     get_grade_and_remark,
     get_overall_grade,
-    get_student_position,
-    get_thresholds,
     rank_students,
+    get_student_position,
+    fmt_pos,
 )
 
 # ---------------------------------------------------------------------------
 # Date Parsing Helper
 # ---------------------------------------------------------------------------
-def parse_date_field(date_value) -> datetime.date | None:
+
+def parse_date_field(date_value) -> object | None:
     """
     Parse a date value from the frontend into a proper date object.
     Handles: ISO format strings (YYYY-MM-DD), datetime objects, and None.
@@ -46,9 +41,9 @@ def parse_date_field(date_value) -> datetime.date | None:
     """
     if not date_value:
         return None
+    import datetime
     try:
         if isinstance(date_value, str):
-            # Django's DateField expects ISO format (YYYY-MM-DD)
             return datetime.date.fromisoformat(date_value.strip())
         elif isinstance(date_value, datetime.date):
             return date_value
@@ -60,11 +55,12 @@ def parse_date_field(date_value) -> datetime.date | None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 def get_current_year() -> int:
     return getattr(settings, "CURRENT_YEAR", timezone.now().year)
 
 
-def parse_year(raw) -> tuple[int | None, str | None]:
+def _parse_year(raw) -> tuple[int | None, str | None]:
     """Returns (year_int, error_string). error_string is None on success."""
     if raw is None or raw == "":
         return get_current_year(), None
@@ -74,40 +70,25 @@ def parse_year(raw) -> tuple[int | None, str | None]:
         return None, "year must be a valid integer"
 
 
-def fetch_report(student, term: str, year: int):
+def _fetch_report(student, term: str, year: int):
     """
     Fetches the Report for (student, term, year).
     Returns (report_instance | None, has_promotion_fields: bool).
-    Uses robust relations so `next_class` name is directly available.
     """
-    base_fields = [
-        "id",
-        "student",
-        "term",
-        "year",
-        "attendance",
-        "attendance_total",
-        "interest",
-        "conduct",
-        "teacher_remark",
-        "vacation_date",
-        "resumption_date",
-    ]
-    has_model_promo = hasattr(Report, "promotion_status")
+    has_promo = has_promotion_fields()
 
-    if not has_model_promo:
-        qs = Report.objects.filter(
-            student=student, term=term, year=year
-        ).only(*base_fields)
-        return qs.first(), False
+    base_fields = [
+        "id", "student", "term", "year", "attendance", "attendance_total",
+        "interest", "conduct", "teacher_remark", "vacation_date", "resumption_date",
+    ]
+    report_fields = base_fields + (["promotion_status", "next_class"] if has_promo else [])
+
+    qs = Report.objects.filter(student=student, term=term, year=year).only(*report_fields)
+    if has_promo:
+        qs = qs.select_related("next_class").only(*report_fields, "next_class__name")
 
     try:
-        report = (
-            Report.objects.filter(student=student, term=term, year=year)
-            .select_related("next_class")
-            .first()
-        )
-        return report, True
+        return qs.first(), has_promo
     except ProgrammingError as exc:
         if "promotion_status" in str(exc) or "next_class" in str(exc):
             fallback_qs = Report.objects.filter(
@@ -117,7 +98,7 @@ def fetch_report(student, term: str, year: int):
         raise
 
 
-def insert_minimal_report(student, term: str, year: int):
+def _insert_minimal_report(student, term: str, year: int):
     """Insert a minimal report using raw SQL to avoid model field issues"""
     table = connection.ops.quote_name(Report._meta.db_table)
     columns = [
@@ -134,17 +115,7 @@ def insert_minimal_report(student, term: str, year: int):
         connection.ops.quote_name("created_at"),
     ]
     values = [
-        student.id,
-        term,
-        year,
-        0,
-        1,
-        "",
-        "",
-        "",
-        None,
-        None,
-        timezone.now(),
+        student.id, term, year, 0, 1, "", "", "", None, None, timezone.now(),
     ]
     placeholders = ", ".join(["%s"] * len(values))
     with connection.cursor() as cursor:
@@ -152,92 +123,49 @@ def insert_minimal_report(student, term: str, year: int):
             f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})",
             values,
         )
-    return (
-        Report.objects.filter(
-            student=student,
-            term=term,
-            year=year,
-        )
-        .only(
-            "id",
-            "student",
-            "term",
-            "year",
-            "attendance",
-            "attendance_total",
-            "interest",
-            "conduct",
-            "teacher_remark",
-            "vacation_date",
-            "resumption_date",
-        )
-        .first()
-    )
+    return Report.objects.filter(
+        student=student, term=term, year=year,
+    ).only(
+        "id", "student", "term", "year", "attendance", "attendance_total",
+        "interest", "conduct", "teacher_remark", "vacation_date", "resumption_date",
+    ).first()
 
 
-def get_or_create_report(student, term: str, year: int):
-    """
-    Fetches or creates the Report for (student, term, year) reliably.
-    Returns (report_instance, has_promotion_fields: bool).
-    """
-    has_model_promo = hasattr(Report, "promotion_status")
+def _create_report(student, term: str, year: int, has_promo: bool):
+    """Create or get a report, handling promotion fields gracefully"""
     base_fields = [
-        "id",
-        "student",
-        "term",
-        "year",
-        "attendance",
-        "attendance_total",
-        "interest",
-        "conduct",
-        "teacher_remark",
-        "vacation_date",
-        "resumption_date",
+        "id", "student", "term", "year", "attendance", "attendance_total",
+        "interest", "conduct", "teacher_remark", "vacation_date", "resumption_date",
     ]
 
-    if not has_model_promo:
-        report = (
-            Report.objects.filter(student=student, term=term, year=year)
-            .only(*base_fields)
-            .first()
-        )
-        if not report:
-            report = insert_minimal_report(student, term, year)
-        return report, False
+    if has_promo:
+        try:
+            return Report.objects.get_or_create(
+                student=student, term=term, year=year,
+                defaults={"attendance": 0, "attendance_total": 1},
+            )
+        except ProgrammingError as exc:
+            if "promotion_status" in str(exc) or "next_class" in str(exc):
+                report = Report.objects.filter(
+                    student=student, term=term, year=year,
+                ).only(*base_fields).first()
+                if not report:
+                    report = _insert_minimal_report(student, term, year)
+                return report, False
+            raise
 
-    try:
-        report = (
-            Report.objects.filter(student=student, term=term, year=year)
-            .select_related("next_class")
-            .first()
-        )
-        if not report:
-            report, _ = Report.objects.get_or_create(
-                student=student,
-                term=term,
-                year=year,
-                defaults={
-                    "attendance": 0,
-                    "attendance_total": 1,
-                },
-            )
-        return report, True
-    except ProgrammingError as exc:
-        if "promotion_status" in str(exc) or "next_class" in str(exc):
-            report = (
-                Report.objects.filter(student=student, term=term, year=year)
-                .only(*base_fields)
-                .first()
-            )
-            if not report:
-                report = insert_minimal_report(student, term, year)
-            return report, False
-        raise
+    report = Report.objects.filter(
+        student=student, term=term, year=year,
+    ).only(*base_fields).first()
+    if not report:
+        report = _insert_minimal_report(student, term, year)
+    return report, False
 
 
 # ---------------------------------------------------------------------------
 # Serializer
 # ---------------------------------------------------------------------------
+
 class SubjectResultSerializer(serializers.Serializer):
     subject = serializers.CharField()
     reopen = serializers.FloatField(allow_null=True)
@@ -284,45 +212,41 @@ class ReportResponseSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 # View
 # ---------------------------------------------------------------------------
+
 class StudentReportView(APIView):
     permission_classes = [IsAuthenticated]
 
-    # ── GET ──────────────────────────────────────────────────────────────────
+    # ── GET ──────────────────────────────────────────────────────────────
     def get(self, request, student_id):
         term = request.query_params.get("term")
         if not term:
             return Response({"error": "term is required"}, status=400)
 
-        year, err = parse_year(request.query_params.get("year"))
+        year, err = _parse_year(request.query_params.get("year"))
         if err:
             return Response({"error": err}, status=400)
 
         student = get_object_or_404(
-            Student.objects.select_related("school_class"),
-            id=student_id,
+            Student.objects.select_related("school_class"), id=student_id,
         )
-        level = (
-            getattr(student.school_class, "level", "basic_7_9")
-            if student.school_class
-            else "basic_7_9"
-        )
+
+        level = getattr(student.school_class, "level", "basic_7_9") if student.school_class else "basic_7_9"
         thresholds = get_thresholds(level)
         show_position = level != "nursery_kg"
 
         results = (
-            Result.objects.filter(student=student, term=term, year=year).select_related(
-                "subject"
-            )
+            Result.objects
+            .filter(student=student, term=term, year=year)
+            .select_related("subject")
         )
 
-        report, has_promo = fetch_report(student, term, year)
+        report, has_promo = _fetch_report(student, term, year)
 
-        # ── Subjects ──────────────────────────────────────────────────────
+        # ── Subjects ────────────────────────────────────────────────
         subjects = []
         total_score = 0.0
         passed = 0
         failed = 0
-
         for r in results:
             score = r.score or 0.0
             grade, remark = get_grade_and_remark(score, thresholds)
@@ -346,18 +270,20 @@ class StudentReportView(APIView):
         average = round(total_score / subject_count, 1) if subject_count else 0.0
         overall_grade = get_overall_grade(average, thresholds)
 
-        # ── Attendance — single aggregate query ───────────────────────────
-        att = Attendance.objects.filter(
-            student=student, term=term, year=year
-        ).aggregate(
-            total=Count("id"),
-            present=Count("id", filter=Q(status__in=["present", "late"])),
+        # ── Attendance — single aggregate query ───────────────────────
+        att = (
+            Attendance.objects
+            .filter(student=student, term=term, year=year)
+            .aggregate(
+                total=Count("id"),
+                present=Count("id", filter=Q(status__in=["present", "late"])),
+            )
         )
         total_days = att["total"] or 0
         present_days = att["present"] or 0
         att_percent = round((present_days / total_days) * 100) if total_days else 0
 
-        # ── Ranking — single aggregated query, no N+1 ────────────────────
+        # ── Ranking — single aggregated query, no N+1 ─────────────────
         if show_position and student.school_class:
             ranked = rank_students(student.school_class, term, year)
             position = get_student_position(ranked, student.id)
@@ -369,24 +295,19 @@ class StudentReportView(APIView):
             out_of = None
             show_position = False
 
-        # ── Promotion fields ──────────────────────────────────────────────
+        # ── Promotion fields ───────────────────────────────────────
         promotion_status = None
         next_class_id = None
         next_class_name = None
-
         if has_promo and report:
-            promotion_status = getattr(report, "promotion_status", None)
-            next_class_id = getattr(report, "next_class_id", None)
-            next_class_obj = getattr(report, "next_class", None)
-            if next_class_obj:
-                next_class_name = getattr(next_class_obj, "name", None)
+            promotion_status = report.promotion_status
+            next_class_id = report.next_class_id
+            next_class_name = report.next_class.name if report.next_class else None
 
         payload = {
             "student": student.full_name,
             "admission_number": student.admission_number,
-            "school_class": (
-                student.school_class.name if student.school_class else None
-            ),
+            "school_class": student.school_class.name if student.school_class else None,
             "photo": student.photo.url if student.photo else None,
             "term": term,
             "year": year,
@@ -408,46 +329,36 @@ class StudentReportView(APIView):
             "conduct": report.conduct if report else None,
             "interest": report.interest if report else None,
             "teacher_remark": report.teacher_remark if report else None,
-            "vacation_date": (
-                str(report.vacation_date) if report and report.vacation_date else None
-            ),
-            "resumption_date": (
-                str(report.resumption_date)
-                if report and report.resumption_date
-                else None
-            ),
+            "vacation_date": str(report.vacation_date) if report and report.vacation_date else None,
+            "resumption_date": str(report.resumption_date) if report and report.resumption_date else None,
             "promotion_status": promotion_status,
             "next_class": next_class_id,
             "next_class_name": next_class_name,
         }
         return Response(ReportResponseSerializer(payload).data)
 
-    # ── PATCH ─────────────────────────────────────────────────────────────
+    # ── PATCH ────────────────────────────────────────────────────────────
     def patch(self, request, student_id):
         term = request.data.get("term")
         if not term:
             return Response({"error": "term is required"}, status=400)
 
-        year, err = parse_year(request.data.get("year"))
+        year, err = _parse_year(request.data.get("year"))
         if err:
             return Response({"error": err}, status=400)
 
         student = get_object_or_404(
-            Student.objects.select_related("school_class"),
-            id=student_id,
+            Student.objects.select_related("school_class"), id=student_id,
         )
 
-        report, has_promo = get_or_create_report(student, term, year)
+        has_promo_flag = has_promotion_fields()
+        report, has_promo = _create_report(student, term, year, has_promo_flag)
 
         NULLABLE_FIELDS = {"vacation_date", "resumption_date", "promotion_status"}
         UPDATABLE = [
-            "conduct",
-            "interest",
-            "teacher_remark",
-            "vacation_date",
-            "resumption_date",
+            "conduct", "interest", "teacher_remark", "vacation_date", "resumption_date",
         ]
-        if has_promo:
+        if has_promo_flag:
             UPDATABLE.append("promotion_status")
 
         changed = []
@@ -457,18 +368,14 @@ class StudentReportView(APIView):
             value = request.data[field]
             if field in NULLABLE_FIELDS and value == "":
                 value = None
-            # Parse date fields properly before storing
             if field in ("vacation_date", "resumption_date"):
                 value = parse_date_field(value)
             setattr(report, field, value)
             changed.append(field)
 
-        # FK — store via _id to avoid extra query
-        if has_promo and "next_class" in request.data:
+        if has_promo_flag and "next_class" in request.data:
             nc = request.data["next_class"]
-            report.next_class_id = (
-                int(nc) if nc is not None and nc != "" else None
-            )
+            report.next_class_id = int(nc) if nc else None
             changed.append("next_class_id")
 
         if changed:
@@ -476,11 +383,7 @@ class StudentReportView(APIView):
                 report.save(update_fields=changed)
             except ProgrammingError as exc:
                 if "promotion_status" in str(exc) or "next_class" in str(exc):
-                    changed = [
-                        field
-                        for field in changed
-                        if field not in {"promotion_status", "next_class_id"}
-                    ]
+                    changed = [f for f in changed if f not in {"promotion_status", "next_class_id"}]
                     if changed:
                         report.save(update_fields=changed)
                     has_promo = False
@@ -488,12 +391,8 @@ class StudentReportView(APIView):
                     raise
 
         if has_promo:
-            # Explicitly refresh from DB to clear cached foreign keys and load fresh next_class relation
             report.refresh_from_db()
-            next_class_obj = getattr(report, "next_class", None)
-            next_class_name = (
-                getattr(next_class_obj, "name", None) if next_class_obj else None
-            )
+            next_class_name = report.next_class.name if getattr(report, "next_class", None) else None
         else:
             next_class_name = None
 
@@ -502,15 +401,12 @@ class StudentReportView(APIView):
             "conduct": report.conduct,
             "interest": report.interest,
             "teacher_remark": report.teacher_remark,
-            "vacation_date": (
-                str(report.vacation_date) if report.vacation_date else None
-            ),
-            "resumption_date": (
-                str(report.resumption_date) if report.resumption_date else None
-            ),
-            "promotion_status": (
-                getattr(report, "promotion_status", None) if has_promo else None
-            ),
-            "next_class": getattr(report, "next_class_id", None) if has_promo else None,
+            "vacation_date": str(report.vacation_date) if report.vacation_date else None,
+            "resumption_date": str(report.resumption_date) if report.resumption_date else None,
+            # Use the post-save `has_promo`, not the pre-save flag — if the
+            # save hit a ProgrammingError and fell back, this avoids
+            # reporting promotion data the DB doesn't actually have.
+            "promotion_status": report.promotion_status if has_promo else None,
+            "next_class": report.next_class_id if has_promo else None,
             "next_class_name": next_class_name,
         })
