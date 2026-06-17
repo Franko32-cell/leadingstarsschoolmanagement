@@ -1,5 +1,5 @@
 """
-report_view.py
+report_view.py - Complete Fixed Version
 Drop-in replacement for: backend/api/views/report_view.py
 
 Fixes applied vs previous version:
@@ -124,6 +124,7 @@ def _fetch_report(student, term: str, year: int):
 
 
 def _insert_minimal_report(student, term: str, year: int):
+    """Insert a minimal report using raw SQL to avoid model field issues"""
     table = connection.ops.quote_name(Report._meta.db_table)
     columns = [
         connection.ops.quote_name("student_id"),
@@ -179,6 +180,7 @@ def _insert_minimal_report(student, term: str, year: int):
 
 
 def _create_report(student, term: str, year: int, has_promo: bool):
+    """Create or get a report, handling promotion fields gracefully"""
     base_fields = [
         "id",
         "student",
