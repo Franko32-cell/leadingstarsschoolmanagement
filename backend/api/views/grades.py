@@ -2,8 +2,12 @@
 Shared grading logic, ranking, and formatting utilities.
 """
 
+import logging
+import threading
+
 from django.db.models import Sum, Q
 
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Grading systems
@@ -61,31 +65,62 @@ TERM_LABELS = {"term1": "Term 1", "term2": "Term 2", "term3": "Term 3"}
 
 # ---------------------------------------------------------------------------
 # Feature detection — avoids broad ProgrammingError catches
+#
+# IMPORTANT: this is intentionally lazy, not eager-at-import-time. The old
+# version ran the DB introspection once when this module was first imported
+# and cached whatever it got — including a transient failure (DB not ready
+# yet, migration still mid-flight on a rolling deploy). That False got stuck
+# for the entire lifetime of the worker process, with nothing logged, which
+# silently disabled promotion_status/next_class everywhere downstream.
+#
+# This version only caches a CONFIRMED True. A False result is never cached,
+# so the next call just retries the introspection — once the columns are
+# actually there, the very next request after that picks it up correctly,
+# no restart required.
 # ---------------------------------------------------------------------------
+
+_promo_lock = threading.Lock()
+_promo_cache = {"value": False}
 
 
 def _check_promotion_fields() -> bool:
     """
-    Returns True if the Report model has promotion_status / next_class columns.
-    Evaluated once at import time so it never hits the DB per request.
+    Returns True only if the Report table has BOTH promotion_status and
+    next_class_id columns. Checking both avoids a half-applied migration
+    (one column present, the other missing) being reported as fully ready.
     """
     try:
         from apps.results.models import Report
         from django.db import connection
 
         table = Report._meta.db_table
-        col_names = {
-            col.name
-            for col in connection.introspection.get_table_description(
-                connection.cursor(), table
-            )
-        }
-        return "promotion_status" in col_names
+        with connection.cursor() as cursor:
+            col_names = {
+                col.name
+                for col in connection.introspection.get_table_description(cursor, table)
+            }
+        return "promotion_status" in col_names and "next_class_id" in col_names
     except Exception:
+        logger.exception(
+            "Promotion-field introspection failed; will retry on next call "
+            "instead of permanently disabling promotion fields."
+        )
         return False
 
 
-HAS_PROMOTION_FIELDS: bool = _check_promotion_fields()
+def has_promotion_fields() -> bool:
+    """
+    Lazily checks for promotion_status / next_class columns. Call this
+    instead of relying on a module-level constant — it's cheap after the
+    first confirmed True (just a dict read), and self-heals if the schema
+    wasn't ready the first time it was checked.
+    """
+    if _promo_cache["value"]:
+        return True
+    with _promo_lock:
+        if not _promo_cache["value"]:
+            _promo_cache["value"] = _check_promotion_fields()
+        return _promo_cache["value"]
 
 
 # ---------------------------------------------------------------------------
