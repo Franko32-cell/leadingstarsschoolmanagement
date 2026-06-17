@@ -5,7 +5,7 @@ Shared grading logic, ranking, and formatting utilities.
 import logging
 import threading
 
-from django.db.models import Sum, Q
+from django.db.models import F, Sum, Q
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +160,7 @@ def rank_students(school_class, term: str, year: int) -> list[dict]:
         [{"student_id": ..., "total": ...}, ...]
 
     Uses a single DB query with SUM annotation instead of one query per student.
+    NULL totals (students with no results) are sorted last.
     """
     from apps.students.models import Student
 
@@ -172,7 +173,7 @@ def rank_students(school_class, term: str, year: int) -> list[dict]:
                 filter=Q(results__term=term, results__year=year),
             )
         )
-        .order_by("-total")
+        .order_by(F("total").desc(nulls_last=True))
         .values("id", "total")
     )
     return [{"student_id": r["id"], "total": r["total"] or 0} for r in rows]
