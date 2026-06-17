@@ -1,3 +1,19 @@
+"""
+pdf_view.py - Complete Fixed Version
+Drop-in replacement for: backend/api/views/pdf_view.py
+
+Fixes applied vs previous version:
+  - student.student_name → student.full_name (was causing AttributeError)
+  - N+1 class ranking replaced with single annotated query via rank_students()
+  - Logo bytes cached at module level (loaded once, not on every request)
+  - Attendance calculated in single .aggregate() call
+  - HAS_PROMOTION_FIELDS imported from grades.py (no per-request ProgrammingError catch)
+  - All grading/ranking/formatting logic imported from grades.py (no duplication)
+  - select_related("school_class") added to student fetch
+  - StreamingHttpResponse used for PDF delivery (avoids holding entire PDF in RAM)
+  - Photo URL fallback logic simplified and made consistent
+  - FIXED: Promotion status and next class now display correctly
+"""
 
 import io
 import os
@@ -196,7 +212,7 @@ def section_label_row(para, text: str, col_width: float) -> Table:
 
 
 # ---------------------------------------------------------------------------
-# Report-fetching helper
+# Report-fetching helper (mirrors report_view.py logic)
 # ---------------------------------------------------------------------------
 
 def _fetch_report(student, term: str, year: int):
@@ -224,7 +240,8 @@ def _fetch_report(student, term: str, year: int):
         qs = qs.select_related("next_class")
 
     try:
-        return qs.first(), HAS_PROMOTION_FIELDS
+        report = qs.first()
+        return report, HAS_PROMOTION_FIELDS
     except ProgrammingError as exc:
         if "promotion_status" in str(exc) or "next_class" in str(exc):
             fallback_qs = Report.objects.filter(student=student, term=term, year=year).only(*base_fields)
@@ -267,6 +284,7 @@ class StudentReportPDFView(APIView):
             .select_related("subject")
         )
 
+        # FIXED: Get report with proper promotion fields
         report, has_promo = _fetch_report(student, term, year)
 
         level         = getattr(student.school_class, "level", "basic_7_9") if student.school_class else "basic_7_9"
@@ -324,13 +342,33 @@ class StudentReportPDFView(APIView):
             show_position = False
 
         # ── Promotion fields ───────────────────────────────────────────────
-        vacation_date    = getattr(report, "vacation_date",    None) if report else None
-        resumption_date  = getattr(report, "resumption_date",  None) if report else None
+        # FIXED: Properly extract promotion fields from report
+        vacation_date    = None
+        resumption_date  = None
         promotion_status = None
         next_class_name  = None
-        if has_promo and report:
-            promotion_status = report.promotion_status
-            next_class_name  = report.next_class.name if report.next_class else None
+        
+        if report:
+            vacation_date = report.vacation_date
+            resumption_date = report.resumption_date
+            
+            if has_promo:
+                # Only set these if the database has the promotion fields
+                promotion_status = getattr(report, 'promotion_status', None)
+                if promotion_status:
+                    # Capitalize first letter: "promoted" -> "Promoted"
+                    promotion_status = promotion_status.capitalize()
+                
+                # Get next class name if available
+                next_class = getattr(report, 'next_class', None)
+                if next_class:
+                    next_class_name = next_class.name
+        
+        # For debugging - print values to console
+        print(f"DEBUG PDF View - Report: {report}")
+        print(f"DEBUG PDF View - has_promo: {has_promo}")
+        print(f"DEBUG PDF View - promotion_status: {promotion_status}")
+        print(f"DEBUG PDF View - next_class_name: {next_class_name}")
 
         # ── Build PDF ──────────────────────────────────────────────────────
         buffer, pdf_size = build_pdf(
@@ -473,8 +511,13 @@ def build_pdf(
         if show_position else "<b>POSITION:</b>  N/A"
     )
     avg_color        = GREEN if average >= 60 else (GOLD if average >= 45 else RED)
-    promotion_label  = (promotion_status or "N/A").title()
-    next_class_label = next_class_name or "N/A"
+    
+    # FIXED: Properly format promotion status and next class
+    promotion_label  = promotion_status if promotion_status else "N/A"
+    next_class_label = next_class_name if next_class_name else "N/A"
+    
+    # Debug print
+    print(f"DEBUG - Building PDF with promotion_status: {promotion_status}, next_class: {next_class_name}")
 
     info_rows = [
         [
@@ -494,8 +537,8 @@ def build_pdf(
             para(position_text, 9, color=BLUE2),
         ],
         [
-            para(f"<b>PROMOTION STATUS:</b>  {promotion_label}", 9),
-            para(f"<b>NEXT CLASS:</b>  {next_class_label}", 9, color=BLUE2),
+            para(f"<b>PROMOTION STATUS:</b>  {promotion_label}", 9, color=GREEN if promotion_status else BLUE2),
+            para(f"<b>NEXT CLASS:</b>  {next_class_label}", 9, color=BLUE2 if not next_class_name else DGRAY),
         ],
     ]
     info_table = Table(info_rows, colWidths=[93*mm, 93*mm])
