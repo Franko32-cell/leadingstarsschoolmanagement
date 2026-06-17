@@ -3,42 +3,32 @@
  * Drop-in replacement for: frontend/admin-dashboard/src/pages/Reports.jsx
  *
  * Fixes vs previous version:
- *  - Year selector added to filter bar; passed to all API calls including PDF
- *  - Separate error states per action: loadError, saveError, pdfError
- *  - remarks state is the single source of truth; post-save refetch dropped
- *  - fetchReport wrapped in useCallback with correct dependency array
- *  - downloadPDF correctly passes year param
- *  - CURRENT_TERM derived from TERMS array, not hardcoded separately
- *  - "Transferred to Class" label wording on next-class dropdown
- *  - PromotionBadge and next-class banner pill both show correct label
- *  - Unsaved-changes guard via beforeunload listener
- *  - Loading skeleton on class/student dropdowns
- *  - Class field renamed from "class" → "school_class" in API response (matches backend)
+ * - Completely matches updated backend JSON properties to keep UI pills and banners perfectly synced
+ * - Year selector added to filter bar; correctly passed to all API calls including downloadPDF
+ * - Unsaved-changes guard via beforeunload listener
+ * - Loading skeleton on class/student dropdowns
  */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import API from "../services/api";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
 const TERMS = [
   { value: "term1", label: "Term 1" },
   { value: "term2", label: "Term 2" },
   { value: "term3", label: "Term 3" },
 ];
-
 const CURRENT_TERM = TERMS[TERMS.length - 1].value;
 
-const CURRENT_YEAR  = new Date().getFullYear();
-const YEAR_OPTIONS  = Array.from({ length: 6 }, (_, i) => CURRENT_YEAR - i);
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: 6 }, (_, i) => CURRENT_YEAR - i);
 
 const GRADE_COLORS = {
-  A:  "bg-green-100 text-green-800",
-  B:  "bg-emerald-100 text-emerald-800",
-  C:  "bg-blue-100 text-blue-800",
-  D:  "bg-cyan-100 text-cyan-800",
+  A: "bg-green-100 text-green-800",
+  B: "bg-emerald-100 text-emerald-800",
+  C: "bg-blue-100 text-blue-800",
+  D: "bg-cyan-100 text-cyan-800",
   "1": "bg-green-100 text-green-800",
   "2": "bg-emerald-100 text-emerald-800",
   "3": "bg-blue-100 text-blue-800",
@@ -48,69 +38,77 @@ const GRADE_COLORS = {
   "7": "bg-red-100 text-red-700",
   "8": "bg-red-200 text-red-800",
   "9": "bg-red-300 text-red-900",
-  E2:  "bg-orange-100 text-orange-800",
-  E3:  "bg-red-100 text-red-700",
-  E4:  "bg-red-200 text-red-800",
-  E5:  "bg-red-300 text-red-900",
+  E2: "bg-orange-100 text-orange-800",
+  E3: "bg-red-100 text-red-700",
+  E4: "bg-red-200 text-red-800",
+  E5: "bg-red-300 text-red-900",
 };
 
 const GRADE_SCALE_B79 = [
-  { range: "90-100", grade: "1", label: "HIGHEST"      },
-  { range: "80-89",  grade: "2", label: "HIGHER"       },
-  { range: "60-79",  grade: "3", label: "HIGH"         },
-  { range: "55-59",  grade: "4", label: "HIGH AVERAGE" },
-  { range: "50-54",  grade: "5", label: "AVERAGE"      },
-  { range: "45-49",  grade: "6", label: "LOW AVERAGE"  },
-  { range: "40-44",  grade: "7", label: "LOW"          },
-  { range: "35-39",  grade: "8", label: "LOWER"        },
-  { range: "0-34",   grade: "9", label: "LOWEST"       },
+  { range: "90-100", grade: "1", label: "HIGHEST" },
+  { range: "80-89", grade: "2", label: "HIGHER" },
+  { range: "60-79", grade: "3", label: "HIGH" },
+  { range: "55-59", grade: "4", label: "HIGH AVERAGE" },
+  { range: "50-54", grade: "5", label: "AVERAGE" },
+  { range: "45-49", grade: "6", label: "LOW AVERAGE" },
+  { range: "40-44", grade: "7", label: "LOW" },
+  { range: "35-39", grade: "8", label: "LOWER" },
+  { range: "0-34", grade: "9", label: "LOWEST" },
 ];
 
 const GRADE_SCALE_B16 = [
-  { range: "90-100", grade: "A",  label: "EXCELLENT"     },
-  { range: "80-89",  grade: "B",  label: "VERY GOOD"     },
-  { range: "60-79",  grade: "C",  label: "GOOD"          },
-  { range: "55-59",  grade: "D",  label: "HIGH AVERAGE"  },
-  { range: "45-49",  grade: "E2", label: "BELOW AVERAGE" },
-  { range: "40-44",  grade: "E3", label: "LOW"           },
-  { range: "35-39",  grade: "E4", label: "LOWER"         },
-  { range: "0-34",   grade: "E5", label: "LOWEST"        },
+  { range: "90-100", grade: "A", label: "EXCELLENT" },
+  { range: "80-89", grade: "B", label: "VERY GOOD" },
+  { range: "60-79", grade: "C", label: "GOOD" },
+  { range: "55-59", grade: "D", label: "HIGH AVERAGE" },
+  { range: "45-49", grade: "E2", label: "BELOW AVERAGE" },
+  { range: "40-44", grade: "E3", label: "LOW" },
+  { range: "35-39", grade: "E4", label: "LOWER" },
+  { range: "0-34", grade: "E5", label: "LOWEST" },
 ];
 
 const CONDUCT_OPTIONS = ["Excellent", "Very Good", "Good", "Fair", "Poor"];
 
 const PROMOTION_OPTIONS = [
   {
-    value:       "promoted",
-    label:       "Promoted",
-    icon:        "🎓",
-    activeClass: "border-green-400 bg-green-50 text-green-800 ring-2 ring-green-300 ring-offset-1",
-    idleClass:   "border-slate-200 text-slate-500 hover:border-green-300 hover:bg-green-50/50",
-    nextLabel:   "Promoted to Class",
+    value: "promoted",
+    label: "Promoted",
+    icon: "🎓",
+    activeClass:
+      "border-green-400 bg-green-50 text-green-800 ring-2 ring-green-300 ring-offset-1",
+    idleClass:
+      "border-slate-200 text-slate-500 hover:border-green-300 hover:bg-green-50/50",
+    nextLabel: "Promoted to Class",
   },
   {
-    value:       "repeated",
-    label:       "Repeated",
-    icon:        "🔁",
-    activeClass: "border-amber-400 bg-amber-50 text-amber-800 ring-2 ring-amber-300 ring-offset-1",
-    idleClass:   "border-slate-200 text-slate-500 hover:border-amber-300 hover:bg-amber-50/50",
-    nextLabel:   null,
+    value: "repeated",
+    label: "Repeated",
+    icon: "🔁",
+    activeClass:
+      "border-amber-400 bg-amber-50 text-amber-800 ring-2 ring-amber-300 ring-offset-1",
+    idleClass:
+      "border-slate-200 text-slate-500 hover:border-amber-300 hover:bg-amber-50/50",
+    nextLabel: null,
   },
   {
-    value:       "transferred",
-    label:       "Transferred",
-    icon:        "🏫",
-    activeClass: "border-blue-400 bg-blue-50 text-blue-800 ring-2 ring-blue-300 ring-offset-1",
-    idleClass:   "border-slate-200 text-slate-500 hover:border-blue-300 hover:bg-blue-50/50",
-    nextLabel:   "Transferred to Class",
+    value: "transferred",
+    label: "Transferred",
+    icon: "🏫",
+    activeClass:
+      "border-blue-400 bg-blue-50 text-blue-800 ring-2 ring-blue-300 ring-offset-1",
+    idleClass:
+      "border-slate-200 text-slate-500 hover:border-blue-300 hover:bg-blue-50/50",
+    nextLabel: "Transferred to Class",
   },
   {
-    value:       "withdrawn",
-    label:       "Withdrawn",
-    icon:        "📋",
-    activeClass: "border-red-400 bg-red-50 text-red-800 ring-2 ring-red-300 ring-offset-1",
-    idleClass:   "border-slate-200 text-slate-500 hover:border-red-300 hover:bg-red-50/50",
-    nextLabel:   null,
+    value: "withdrawn",
+    label: "Withdrawn",
+    icon: "📋",
+    activeClass:
+      "border-red-400 bg-red-50 text-red-800 ring-2 ring-red-300 ring-offset-1",
+    idleClass:
+      "border-slate-200 text-slate-500 hover:border-red-300 hover:bg-red-50/50",
+    nextLabel: null,
   },
 ];
 
@@ -122,7 +120,6 @@ const PROMO_WITH_NEXT_CLASS = new Set(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
 const getStudentName = (s) =>
   s?.student_name ||
   (s?.first_name ? `${s.first_name} ${s.last_name || ""}`.trim() : null) ||
@@ -130,46 +127,63 @@ const getStudentName = (s) =>
   "Unknown";
 
 const fmt = (v) => (v == null ? "-" : Math.round(v));
-
 const calcAttendancePct = (present, total) =>
   total ? Math.round((present / total) * 100) : 0;
-
 const dateOrNull = (v) => (v && v.trim() !== "" ? v : null);
 
 const EMPTY_REMARKS = {
-  conduct:          "",
-  interest:         "",
-  teacher_remark:   "",
-  vacation_date:    "",
-  resumption_date:  "",
+  conduct: "",
+  interest: "",
+  teacher_remark: "",
+  vacation_date: "",
+  resumption_date: "",
   promotion_status: "",
-  next_class:       "",
+  next_class: "",
 };
 
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
-
 const SectionHeader = ({ icon, title }) => (
   <div className="flex items-center gap-2 mb-3">
     <span aria-hidden="true">{icon}</span>
-    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{title}</h3>
+    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+      {title}
+    </h3>
     <div className="flex-1 h-px bg-slate-100" />
   </div>
 );
 
 const PROMOTION_BADGE_MAP = {
-  promoted:    { icon: "🎓", label: "Promoted",    cls: "bg-green-100 text-green-800 border-green-200" },
-  repeated:    { icon: "🔁", label: "Repeated",    cls: "bg-amber-100 text-amber-800 border-amber-200" },
-  transferred: { icon: "🏫", label: "Transferred", cls: "bg-blue-100  text-blue-800  border-blue-200"  },
-  withdrawn:   { icon: "📋", label: "Withdrawn",   cls: "bg-red-100   text-red-800   border-red-200"   },
+  promoted: {
+    icon: "🎓",
+    label: "Promoted",
+    cls: "bg-green-100 text-green-800 border-green-200",
+  },
+  repeated: {
+    icon: "🔁",
+    label: "Repeated",
+    cls: "bg-amber-100 text-amber-800 border-amber-200",
+  },
+  transferred: {
+    icon: "🏫",
+    label: "Transferred",
+    cls: "bg-blue-100 text-blue-800 border-blue-200",
+  },
+  withdrawn: {
+    icon: "📋",
+    label: "Withdrawn",
+    cls: "bg-red-100 text-red-800 border-red-200",
+  },
 };
 
 const PromotionBadge = ({ status }) => {
   const opt = PROMOTION_BADGE_MAP[status];
   if (!opt) return null;
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${opt.cls}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${opt.cls}`}
+    >
       {opt.icon} {opt.label}
     </span>
   );
@@ -178,7 +192,9 @@ const PromotionBadge = ({ status }) => {
 const ErrorBanner = ({ message }) =>
   message ? (
     <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
-      <span className="text-red-400 flex-shrink-0" aria-hidden="true">⚠</span>
+      <span className="text-red-400 flex-shrink-0" aria-hidden="true">
+        ⚠
+      </span>
       {message}
     </div>
   ) : null;
@@ -196,28 +212,27 @@ const selectCls =
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-
 const Reports = () => {
-  const [classes, setClasses]                 = useState([]);
-  const [students, setStudents]               = useState([]);
-  const [selectedClass, setSelectedClass]     = useState("");
+  const [classes, setClasses] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [selectedClass, setSelectedClass] = useState("");
   const [selectedStudent, setSelectedStudent] = useState("");
-  const [selectedTerm, setSelectedTerm]       = useState(CURRENT_TERM);
-  const [selectedYear, setSelectedYear]       = useState(CURRENT_YEAR);
+  const [selectedTerm, setSelectedTerm] = useState(CURRENT_TERM);
+  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
+  const [report, setReport] = useState(null);
 
-  const [report, setReport]           = useState(null);
   const [loadingClasses, setLoadingClasses] = useState(false);
-  const [loading, setLoading]         = useState(false);
+  const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
-  // Per-action error states so one failure doesn't clobber another
-  const [loadError, setLoadError]   = useState("");
-  const [saveError, setSaveError]   = useState("");
-  const [pdfError,  setPdfError]    = useState("");
+  // Per-action error states
+  const [loadError, setLoadError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [pdfError, setPdfError] = useState("");
 
-  const [remarks, setRemarks]             = useState(EMPTY_REMARKS);
+  const [remarks, setRemarks] = useState(EMPTY_REMARKS);
   const [savingRemarks, setSavingRemarks] = useState(false);
-  const [remarksSaved, setRemarksSaved]   = useState(false);
+  const [remarksSaved, setRemarksSaved] = useState(false);
 
   // Track whether there are unsaved remark changes
   const hasUnsavedChanges = useRef(false);
@@ -274,24 +289,26 @@ const Reports = () => {
 
   const fetchReport = useCallback(async () => {
     if (!selectedStudent || !selectedTerm) return;
+
     setLoading(true);
     setLoadError("");
     setReport(null);
     setRemarksSaved(false);
     hasUnsavedChanges.current = false;
+
     try {
       const res = await API.get(
         `/report/student/${selectedStudent}/?term=${selectedTerm}&year=${selectedYear}`
       );
       setReport(res.data);
       setRemarks({
-        conduct:          res.data.conduct          || "",
-        interest:         res.data.interest         || "",
-        teacher_remark:   res.data.teacher_remark   || "",
-        vacation_date:    res.data.vacation_date    || "",
-        resumption_date:  res.data.resumption_date  || "",
+        conduct: res.data.conduct || "",
+        interest: res.data.interest || "",
+        teacher_remark: res.data.teacher_remark || "",
+        vacation_date: res.data.vacation_date || "",
+        resumption_date: res.data.resumption_date || "",
         promotion_status: res.data.promotion_status || "",
-        next_class:       res.data.next_class       ? String(res.data.next_class) : "",
+        next_class: res.data.next_class ? String(res.data.next_class) : "",
       });
     } catch (err) {
       setLoadError(
@@ -311,7 +328,6 @@ const Reports = () => {
   // -------------------------------------------------------------------------
   // Actions
   // -------------------------------------------------------------------------
-
   const setRemark = (key, val) => {
     setRemarks((prev) => ({ ...prev, [key]: val }));
     setRemarksSaved(false);
@@ -322,30 +338,31 @@ const Reports = () => {
     setSavingRemarks(true);
     setRemarksSaved(false);
     setSaveError("");
+
     try {
       const res = await API.patch(`/report/student/${selectedStudent}/`, {
-        term:             selectedTerm,
-        year:             selectedYear,
-        conduct:          remarks.conduct,
-        interest:         remarks.interest,
-        teacher_remark:   remarks.teacher_remark,
-        vacation_date:    dateOrNull(remarks.vacation_date),
-        resumption_date:  dateOrNull(remarks.resumption_date),
+        term: selectedTerm,
+        year: selectedYear,
+        conduct: remarks.conduct,
+        interest: remarks.interest,
+        teacher_remark: remarks.teacher_remark,
+        vacation_date: dateOrNull(remarks.vacation_date),
+        resumption_date: dateOrNull(remarks.resumption_date),
         promotion_status: remarks.promotion_status || null,
-        next_class:       remarks.next_class        || null,
+        next_class: remarks.next_class || null,
       });
 
-      // Update only the report fields that PATCH returns — don't refetch the whole report
+      // Update only the report fields that PATCH returns — keeps React UI perfectly synced
       setReport((prev) => ({
         ...prev,
-        conduct:          res.data.conduct,
-        interest:         res.data.interest,
-        teacher_remark:   res.data.teacher_remark,
-        vacation_date:    res.data.vacation_date,
-        resumption_date:  res.data.resumption_date,
+        conduct: res.data.conduct,
+        interest: res.data.interest,
+        teacher_remark: res.data.teacher_remark,
+        vacation_date: res.data.vacation_date,
+        resumption_date: res.data.resumption_date,
         promotion_status: res.data.promotion_status,
-        next_class:       res.data.next_class,
-        next_class_name:  res.data.next_class_name,
+        next_class: res.data.next_class,
+        next_class_name: res.data.next_class_name,
       }));
 
       setRemarksSaved(true);
@@ -369,10 +386,13 @@ const Reports = () => {
         `/report/student/${selectedStudent}/pdf/?term=${selectedTerm}&year=${selectedYear}`,
         { responseType: "blob" }
       );
-      const url  = window.URL.createObjectURL(new Blob([res.data]));
+      const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement("a");
-      link.href  = url;
-      link.setAttribute("download", `report_${selectedStudent}_${selectedTerm}_${selectedYear}.pdf`);
+      link.href = url;
+      link.setAttribute(
+        "download",
+        `report_${selectedStudent}_${selectedTerm}_${selectedYear}.pdf`
+      );
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -387,27 +407,42 @@ const Reports = () => {
   // -------------------------------------------------------------------------
   // Derived values
   // -------------------------------------------------------------------------
-  const level         = report?.level || "basic_7_9";
-  const gradeScale    = level === "basic_7_9" ? GRADE_SCALE_B79 : GRADE_SCALE_B16;
-  const subjectNames  = report?.subjects?.map((s) => s.subject) || [];
-  const attendancePct = calcAttendancePct(report?.attendance, report?.attendance_total);
+  const level = report?.level || "basic_7_9";
+  const gradeScale = level === "basic_7_9" ? GRADE_SCALE_B79 : GRADE_SCALE_B16;
+  const subjectNames = report?.subjects?.map((s) => s.subject) || [];
+
+  const attendancePct = calcAttendancePct(
+    report?.attendance,
+    report?.attendance_total
+  );
 
   const avgColor =
-    (report?.average_score ?? 0) >= 60 ? "text-green-600" :
-    (report?.average_score ?? 0) >= 45 ? "text-amber-500" : "text-red-600";
+    (report?.average_score ?? 0) >= 60
+      ? "text-green-600"
+      : (report?.average_score ?? 0) >= 45
+      ? "text-amber-500"
+      : "text-red-600";
 
   const attBarColor =
-    attendancePct >= 80 ? "bg-green-500" :
-    attendancePct >= 60 ? "bg-amber-400" : "bg-red-500";
+    attendancePct >= 80
+      ? "bg-green-500"
+      : attendancePct >= 60
+      ? "bg-amber-400"
+      : "bg-red-500";
 
   const attTextColor =
-    attendancePct >= 80 ? "text-green-600" :
-    attendancePct >= 60 ? "text-amber-600" : "text-red-600";
+    attendancePct >= 80
+      ? "text-green-600"
+      : attendancePct >= 60
+      ? "text-amber-600"
+      : "text-red-600";
 
   const activePromoOption = PROMOTION_OPTIONS.find(
     (o) => o.value === remarks.promotion_status
   );
-  const showNextClassDropdown = PROMO_WITH_NEXT_CLASS.has(remarks.promotion_status);
+  const showNextClassDropdown = PROMO_WITH_NEXT_CLASS.has(
+    remarks.promotion_status
+  );
 
   // -------------------------------------------------------------------------
   // Render
@@ -415,7 +450,6 @@ const Reports = () => {
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="max-w-4xl mx-auto space-y-6">
-
         {/* Page heading */}
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Student Reports</h1>
@@ -429,7 +463,6 @@ const Reports = () => {
 
         {/* ── Filters ─────────────────────────────────────────────────── */}
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex gap-3 flex-wrap items-end">
-
           {/* Class */}
           <div className="flex flex-col gap-1 min-w-[140px]">
             <FormLabel>Class</FormLabel>
@@ -443,9 +476,13 @@ const Reports = () => {
               disabled={loadingClasses}
               className={`${selectCls} disabled:opacity-40`}
             >
-              <option value="">{loadingClasses ? "Loading…" : "Select Class"}</option>
+              <option value="">
+                {loadingClasses ? "Loading…" : "Select Class"}
+              </option>
               {classes.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
               ))}
             </select>
           </div>
@@ -464,7 +501,9 @@ const Reports = () => {
             >
               <option value="">Select Student</option>
               {students.map((s) => (
-                <option key={s.id} value={s.id}>{getStudentName(s)}</option>
+                <option key={s.id} value={s.id}>
+                  {getStudentName(s)}
+                </option>
               ))}
             </select>
           </div>
@@ -479,7 +518,8 @@ const Reports = () => {
             >
               {TERMS.map((t) => (
                 <option key={t.value} value={t.value}>
-                  {t.label}{t.value === CURRENT_TERM ? " (current)" : ""}
+                  {t.label}
+                  {t.value === CURRENT_TERM ? " (current)" : ""}
                 </option>
               ))}
             </select>
@@ -495,7 +535,8 @@ const Reports = () => {
             >
               {YEAR_OPTIONS.map((y) => (
                 <option key={y} value={y}>
-                  {y}{y === CURRENT_YEAR ? " (current)" : ""}
+                  {y}
+                  {y === CURRENT_YEAR ? " (current)" : ""}
                 </option>
               ))}
             </select>
@@ -508,13 +549,16 @@ const Reports = () => {
                 disabled={downloading}
                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm disabled:opacity-50 transition-colors"
               >
-                {downloading
-                  ? <><span className="animate-spin inline-block">⟳</span> Generating…</>
-                  : <>↓ Download PDF</>}
+                {downloading ? (
+                  <>
+                    <span className="animate-spin inline-block">⟳</span>{" "}
+                    Generating…
+                  </>
+                ) : (
+                  <>↓ Download PDF</>
+                )}
               </button>
-              {pdfError && (
-                <p className="text-red-600 text-xs">{pdfError}</p>
-              )}
+              {pdfError && <p className="text-red-600 text-xs">{pdfError}</p>}
             </div>
           )}
         </div>
@@ -522,7 +566,9 @@ const Reports = () => {
         {/* Loading */}
         {loading && (
           <div className="flex items-center justify-center gap-3 py-16 text-slate-400">
-            <span className="text-xl animate-spin" aria-hidden="true">⟳</span>
+            <span className="text-xl animate-spin" aria-hidden="true">
+              ⟳
+            </span>
             <span className="text-sm">Loading report…</span>
           </div>
         )}
@@ -530,13 +576,14 @@ const Reports = () => {
         {/* ── Report Card ─────────────────────────────────────────────── */}
         {report && !loading && (
           <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
-
             {/* ─ Header banner ─ */}
             <div className="bg-gradient-to-br from-slate-800 to-blue-900 p-6 text-white">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 space-y-1">
                   <p className="text-[10px] font-bold text-blue-300 uppercase tracking-widest">
-                    {level === "nursery_kg" ? "GLOBAL LEADERS" : "WHERE LEADERS ARE BORN"}
+                    {level === "nursery_kg"
+                      ? "GLOBAL LEADERS"
+                      : "WHERE LEADERS ARE BORN"}
                   </p>
                   <h2 className="text-xl font-bold leading-tight">
                     {report.school_name || "LEADING STARS ACADEMY"}
@@ -545,16 +592,18 @@ const Reports = () => {
                     <p className="font-semibold text-base">{report.student}</p>
                     <p className="text-blue-200 text-sm">
                       Adm No:&nbsp;
-                      <span className="font-mono text-white">{report.admission_number || "-"}</span>
+                      <span className="font-mono text-white">
+                        {report.admission_number || "-"}
+                      </span>
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 pt-1">
                     <span className="px-2 py-0.5 bg-white/10 rounded-full text-blue-100 text-xs">
-                      {/* backend returns school_class, not class */}
                       {report.school_class || "-"}
                     </span>
                     <span className="px-2 py-0.5 bg-white/10 rounded-full text-blue-100 text-xs">
-                      {TERMS.find((t) => t.value === report.term)?.label || report.term}
+                      {TERMS.find((t) => t.value === report.term)?.label ||
+                        report.term}
                       &nbsp;{report.year}
                     </span>
                     {report.promotion_status && (
@@ -562,12 +611,16 @@ const Reports = () => {
                     )}
                     {report.next_class_name && (
                       <span className="px-2 py-0.5 bg-white/10 rounded-full text-blue-100 text-xs">
-                        {report.promotion_status === "transferred" ? "↪" : "→"}&nbsp;
+                        {report.promotion_status === "transferred"
+                          ? "↪"
+                          : "→"}
+                        &nbsp;
                         {report.next_class_name}
                       </span>
                     )}
                   </div>
                 </div>
+
                 <div className="flex-shrink-0">
                   {report.photo ? (
                     <img
@@ -590,27 +643,41 @@ const Reports = () => {
             {/* ─ Stats strip ─ */}
             <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-slate-100 border-b border-slate-100">
               {[
-                { label: "Total Marks",   value: fmt(report.total_score),   cls: "text-slate-700" },
-                { label: "Average",       value: fmt(report.average_score),  cls: avgColor },
+                {
+                  label: "Total Marks",
+                  value: fmt(report.total_score),
+                  cls: "text-slate-700",
+                },
+                {
+                  label: "Average",
+                  value: fmt(report.average_score),
+                  cls: avgColor,
+                },
                 {
                   label: "Position",
                   value: report.show_position
-                    ? (report.position_formatted
-                        ? `${report.position_formatted} / ${report.out_of}`
-                        : report.position != null
-                          ? `${report.position} / ${report.out_of}`
-                          : "-")
+                    ? report.position_formatted
+                      ? `${report.position_formatted} / ${report.out_of}`
+                      : report.position != null
+                      ? `${report.position} / ${report.out_of}`
+                      : "-"
                     : "N/A",
                   cls: "text-blue-600",
                 },
                 {
                   label: "Overall Grade",
                   value: report.overall_grade ?? "-",
-                  cls:   `font-extrabold ${GRADE_COLORS[report.overall_grade] ? "text-green-700" : "text-slate-700"}`,
+                  cls: `font-extrabold ${
+                    GRADE_COLORS[report.overall_grade]
+                      ? "text-green-700"
+                      : "text-slate-700"
+                  }`,
                 },
               ].map((stat) => (
                 <div key={stat.label} className="p-4 text-center">
-                  <div className={`text-2xl font-bold ${stat.cls}`}>{stat.value}</div>
+                  <div className={`text-2xl font-bold ${stat.cls}`}>
+                    {stat.value}
+                  </div>
                   <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mt-1">
                     {stat.label}
                   </div>
@@ -625,29 +692,48 @@ const Reports = () => {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-700 text-white">
-                      <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">SUBJECT</th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        RE-OPEN<br /><span className="font-normal opacity-60">&amp; RDA /20</span>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">
+                        SUBJECT
                       </th>
                       <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        CA / MGT<br /><span className="font-normal opacity-60">/40</span>
+                        RE-OPEN
+                        <br />
+                        <span className="font-normal opacity-60">
+                          &amp; RDA /20
+                        </span>
                       </th>
                       <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        EXAMS<br /><span className="font-normal opacity-60">/40</span>
+                        CA / MGT
+                        <br />
+                        <span className="font-normal opacity-60">/40</span>
+                      </th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                        EXAMS
+                        <br />
+                        <span className="font-normal opacity-60">/40</span>
                       </th>
                       <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide bg-blue-800/60">
-                        TOTAL<br /><span className="font-normal opacity-60">/100</span>
+                        TOTAL
+                        <br />
+                        <span className="font-normal opacity-60">/100</span>
                       </th>
                       {report.show_position && (
-                        <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">POS.</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                          POS.
+                        </th>
                       )}
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">GRADE</th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">REMARK</th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                        GRADE
+                      </th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                        REMARK
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {report.subjects?.map((sub, i) => {
-                      const badgeCls = GRADE_COLORS[sub.grade] || "bg-slate-100 text-slate-600";
+                      const badgeCls =
+                        GRADE_COLORS[sub.grade] || "bg-slate-100 text-slate-600";
                       return (
                         <tr
                           key={i}
@@ -655,10 +741,18 @@ const Reports = () => {
                             i % 2 === 0 ? "bg-white" : "bg-slate-50/40"
                           }`}
                         >
-                          <td className="px-3 py-2.5 font-medium text-slate-700">{sub.subject}</td>
-                          <td className="px-3 py-2.5 text-center font-mono text-slate-600">{fmt(sub.reopen)}</td>
-                          <td className="px-3 py-2.5 text-center font-mono text-slate-600">{fmt(sub.ca)}</td>
-                          <td className="px-3 py-2.5 text-center font-mono text-slate-600">{fmt(sub.exams)}</td>
+                          <td className="px-3 py-2.5 font-medium text-slate-700">
+                            {sub.subject}
+                          </td>
+                          <td className="px-3 py-2.5 text-center font-mono text-slate-600">
+                            {fmt(sub.reopen)}
+                          </td>
+                          <td className="px-3 py-2.5 text-center font-mono text-slate-600">
+                            {fmt(sub.ca)}
+                          </td>
+                          <td className="px-3 py-2.5 text-center font-mono text-slate-600">
+                            {fmt(sub.exams)}
+                          </td>
                           <td className="px-3 py-2.5 text-center font-mono font-bold text-blue-700 bg-blue-50/50">
                             {fmt(sub.score)}
                           </td>
@@ -668,12 +762,16 @@ const Reports = () => {
                             </td>
                           )}
                           <td className="px-3 py-2.5 text-center">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${badgeCls}`}>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-xs font-bold ${badgeCls}`}
+                            >
                               {sub.grade}
                             </span>
                           </td>
                           <td className="px-3 py-2.5 text-center">
-                            <span className={`px-2 py-0.5 rounded-full text-xs ${badgeCls}`}>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-xs ${badgeCls}`}
+                            >
                               {sub.remark || "-"}
                             </span>
                           </td>
@@ -692,7 +790,10 @@ const Reports = () => {
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-0.5 gap-x-4">
                   {gradeScale.map((g) => (
                     <span key={g.grade} className="text-slate-500">
-                      {g.range}: <b className="text-slate-700">{g.grade} – {g.label}</b>
+                      {g.range}:{" "}
+                      <b className="text-slate-700">
+                        {g.grade} – {g.label}
+                      </b>
                     </span>
                   ))}
                 </div>
@@ -701,7 +802,6 @@ const Reports = () => {
 
             {/* ─ Attendance + Remarks grid ─ */}
             <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
-
               {/* Attendance */}
               <div className="p-6">
                 <SectionHeader icon="📅" title="Attendance" />
@@ -713,19 +813,28 @@ const Reports = () => {
                         {report.attendance} / {report.attendance_total}
                       </span>
                     </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden" role="progressbar"
-                      aria-valuenow={attendancePct} aria-valuemin={0} aria-valuemax={100}>
+                    <div
+                      className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden"
+                      role="progressbar"
+                      aria-valuenow={attendancePct}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                    >
                       <div
                         className={`h-full rounded-full transition-all duration-500 ${attBarColor}`}
                         style={{ width: `${attendancePct}%` }}
                       />
                     </div>
-                    <p className={`text-xs mt-1.5 text-right font-semibold ${attTextColor}`}>
+                    <p
+                      className={`text-xs mt-1.5 text-right font-semibold ${attTextColor}`}
+                    >
                       {attendancePct}% attendance
                     </p>
                   </>
                 ) : (
-                  <p className="text-slate-400 text-sm">No attendance data recorded.</p>
+                  <p className="text-slate-400 text-sm">
+                    No attendance data recorded.
+                  </p>
                 )}
               </div>
 
@@ -746,7 +855,9 @@ const Reports = () => {
                   >
                     <option value="">— Select —</option>
                     {CONDUCT_OPTIONS.map((o) => (
-                      <option key={o} value={o}>{o}</option>
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -755,7 +866,9 @@ const Reports = () => {
                 <div>
                   <FormLabel>
                     Interest{" "}
-                    <span className="text-slate-300 normal-case font-normal">(subject)</span>
+                    <span className="text-slate-300 normal-case font-normal">
+                      (subject)
+                    </span>
                   </FormLabel>
                   <select
                     value={remarks.interest}
@@ -764,7 +877,9 @@ const Reports = () => {
                   >
                     <option value="">— Select Subject —</option>
                     {subjectNames.map((name) => (
-                      <option key={name} value={name}>{name}</option>
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -774,7 +889,9 @@ const Reports = () => {
                   <FormLabel>Remark</FormLabel>
                   <textarea
                     value={remarks.teacher_remark}
-                    onChange={(e) => setRemark("teacher_remark", e.target.value)}
+                    onChange={(e) =>
+                      setRemark("teacher_remark", e.target.value)
+                    }
                     rows={3}
                     placeholder="Write a remark for this student…"
                     className={`${selectCls} resize-none`}
@@ -788,7 +905,9 @@ const Reports = () => {
                     <input
                       type="date"
                       value={remarks.vacation_date || ""}
-                      onChange={(e) => setRemark("vacation_date", e.target.value)}
+                      onChange={(e) =>
+                        setRemark("vacation_date", e.target.value)
+                      }
                       className={selectCls}
                     />
                   </div>
@@ -797,7 +916,9 @@ const Reports = () => {
                     <input
                       type="date"
                       value={remarks.resumption_date || ""}
-                      onChange={(e) => setRemark("resumption_date", e.target.value)}
+                      onChange={(e) =>
+                        setRemark("resumption_date", e.target.value)
+                      }
                       className={selectCls}
                     />
                   </div>
@@ -806,7 +927,6 @@ const Reports = () => {
                 {/* ── Promotion Status ── */}
                 <div className="border-t border-slate-100 pt-4">
                   <SectionHeader icon="🎓" title="Promotion Status" />
-
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     {PROMOTION_OPTIONS.map((opt) => {
                       const active = remarks.promotion_status === opt.value;
@@ -814,7 +934,12 @@ const Reports = () => {
                         <button
                           key={opt.value}
                           type="button"
-                          onClick={() => setRemark("promotion_status", active ? "" : opt.value)}
+                          onClick={() =>
+                            setRemark(
+                              "promotion_status",
+                              active ? "" : opt.value
+                            )
+                          }
                           className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all ${
                             active ? opt.activeClass : opt.idleClass
                           }`}
@@ -822,79 +947,6 @@ const Reports = () => {
                         >
                           <span aria-hidden="true">{opt.icon}</span>
                           <span>{opt.label}</span>
-                          {active && <span className="ml-auto text-xs font-bold" aria-hidden="true">✓</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Next class — shown for promoted and transferred */}
-                  {showNextClassDropdown && (
-                    <div>
-                      <FormLabel>
-                        {activePromoOption?.nextLabel || "Next Class"}{" "}
-                        <span className="text-slate-300 normal-case font-normal">(optional)</span>
-                      </FormLabel>
-                      <select
-                        value={remarks.next_class}
-                        onChange={(e) => setRemark("next_class", e.target.value)}
-                        className={selectCls}
-                      >
-                        <option value="">— Select Class —</option>
-                        {classes.map((c) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </div>
-
-                {/* Save */}
-                <div className="flex items-center gap-3 pt-1">
-                  <button
-                    onClick={saveRemarks}
-                    disabled={savingRemarks}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
-                  >
-                    {savingRemarks ? "Saving…" : "Save Remarks"}
-                  </button>
-                  {remarksSaved && (
-                    <span className="flex items-center gap-1 text-green-600 text-xs font-semibold" role="status">
-                      <span aria-hidden="true">✓</span> Saved
-                    </span>
-                  )}
-                </div>
-
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Empty states ─────────────────────────────────────────────── */}
-        {!loading && !report && selectedStudent && !loadError && (
-          <div className="text-center py-20">
-            <div className="text-5xl mb-4" aria-hidden="true">📋</div>
-            <p className="text-base font-medium text-slate-500">
-              No report found for this student and term.
-            </p>
-            <p className="text-sm text-slate-400 mt-1">
-              Make sure results have been entered for {selectedTerm} {selectedYear}.
-            </p>
-          </div>
-        )}
-
-        {!selectedStudent && (
-          <div className="text-center py-20">
-            <div className="text-5xl mb-4" aria-hidden="true">🎓</div>
-            <p className="text-base font-medium text-slate-400">
-              Select a class and student to view their report.
-            </p>
-          </div>
-        )}
-
-      </div>
-    </div>
-  );
-};
-
-export default Reports;
+                          {active && (
+                            <span
+                              className="ml-auto text-
