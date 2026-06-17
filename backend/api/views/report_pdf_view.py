@@ -1,14 +1,7 @@
-"""
-pdf_view.py - Complete Fixed Version
+"""pdf_view.py
 Drop-in replacement for: backend/api/views/pdf_view.py
-
-Fixes applied vs previous version:
-- Dynamic DB/Model checking to reliably load Promotion fields without ORM `.only()` conflicts
-- Properly resolves related `next_class.name` in a single query via `select_related`
-- Accurately formats and capitalizes `promotion_status` for human reading on the PDF
-- Fully resolves the bug where Promotion status and Next class display as N/A
-- Maintains optimizations (StreamingHttpResponse, single attendance aggregate, logo caching)
 """
+
 import io
 import os
 import re
@@ -18,47 +11,44 @@ from urllib.parse import quote
 
 import requests
 from PIL import Image as PilImage, ImageOps
+
 from django.conf import settings
 from django.db import ProgrammingError
 from django.db.models import Count, Q
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
-    HRFlowable,
-    Image,
-    Paragraph,
-    SimpleDocTemplate,
-    Spacer,
-    Table,
-    TableStyle,
+    HRFlowable, Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
+
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.attendance.models import Attendance
-from apps.results.models import Report, Result
 from apps.students.models import Student
+from apps.results.models import Result, Report
+from apps.attendance.models import Attendance
 
 from .grades import (
-    HAS_PROMOTION_FIELDS,
-    SCHOOL_MOTTOS,
+    has_promotion_fields,
     SCHOOL_NAMES,
+    SCHOOL_MOTTOS,
     TERM_LABELS,
-    fmt_date,
-    fmt_pos,
-    get_grade_and_remark,
-    get_interp_rows,
-    get_overall_grade,
-    get_student_position,
     get_thresholds,
+    get_grade_and_remark,
+    get_overall_grade,
+    get_interp_rows,
     rank_students,
+    get_student_position,
+    fmt_pos,
+    fmt_date,
 )
 
 # ---------------------------------------------------------------------------
@@ -98,7 +88,7 @@ def _get_logo_bytes() -> bytes | None:
     if _logo_cache is not None:
         return _logo_cache
     with _logo_lock:
-        if _logo_cache is not None:  # double-checked locking
+        if _logo_cache is not None:
             return _logo_cache
         if not os.path.exists(LOGO_PATH):
             return None
@@ -113,6 +103,7 @@ def _get_logo_bytes() -> bytes | None:
 # ---------------------------------------------------------------------------
 # Image loading — EXIF-corrected, memory-safe resize
 # ---------------------------------------------------------------------------
+
 def load_image_flowable(path_or_url: str, width: float, height: float) -> Image | None:
     """
     Loads an image from a local path or URL, corrects EXIF orientation,
@@ -173,81 +164,59 @@ def load_logo_flowable(width: float, height: float) -> Image | None:
 # ---------------------------------------------------------------------------
 # ReportLab helpers
 # ---------------------------------------------------------------------------
+
 def make_para(styles):
     """Create a paragraph helper function with given styles"""
-
     def para(text, size=9, bold=False, color=DGRAY, align=TA_LEFT):
-        return Paragraph(
-            str(text),
-            ParagraphStyle(
-                "p",
-                parent=styles["Normal"],
-                fontSize=size,
-                fontName="Helvetica-Bold" if bold else "Helvetica",
-                textColor=color,
-                alignment=align,
-                leading=size + 3,
-            ),
-        )
-
+        return Paragraph(str(text), ParagraphStyle(
+            "p", parent=styles["Normal"], fontSize=size,
+            fontName="Helvetica-Bold" if bold else "Helvetica",
+            textColor=color, alignment=align, leading=size + 3,
+        ))
     return para
 
 
 def section_label_row(para, text: str, col_width: float) -> Table:
     """Create a section header row with blue background"""
     tbl = Table([[para(f" {text}", 7, bold=True, color=WHITE)]], colWidths=[col_width])
-    tbl.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), BLUE),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ])
-    )
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), BLUE),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
     return tbl
 
 
 # ---------------------------------------------------------------------------
-# Report-fetching helper
+# Report-fetching helper (mirrors report_view.py logic)
 # ---------------------------------------------------------------------------
-def fetch_report(student, term: str, year: int):
+
+def _fetch_report(student, term: str, year: int):
     """
     Fetches the Report for (student, term, year).
     Returns (report_instance | None, has_promotion_fields: bool).
-    Uses robust relation selection to ensure next_class is fully accessible.
     """
-    base_fields = [
-        "id",
-        "student",
-        "term",
-        "year",
-        "attendance",
-        "attendance_total",
-        "interest",
-        "conduct",
-        "teacher_remark",
-        "vacation_date",
-        "resumption_date",
-    ]
-    has_model_promo = hasattr(Report, "promotion_status")
+    has_promo = has_promotion_fields()
 
-    if not has_model_promo:
-        qs = Report.objects.filter(
-            student=student, term=term, year=year
-        ).only(*base_fields)
-        return qs.first(), False
+    base_fields = [
+        "id", "student", "term", "year", "attendance", "attendance_total",
+        "interest", "conduct", "teacher_remark", "vacation_date", "resumption_date",
+    ]
+    report_fields = base_fields + (["promotion_status", "next_class"] if has_promo else [])
+
+    qs = Report.objects.filter(student=student, term=term, year=year).only(*report_fields)
+    if has_promo:
+        # Explicitly tell only() which fields of the joined table to pull,
+        # otherwise the FK target gets fully deferred and "free" via
+        # select_related actually costs an extra query per access.
+        qs = qs.select_related("next_class").only(*report_fields, "next_class__name")
 
     try:
-        report = (
-            Report.objects.filter(student=student, term=term, year=year)
-            .select_related("next_class")
-            .first()
-        )
-        return report, True
+        report = qs.first()
+        return report, has_promo
     except ProgrammingError as exc:
         if "promotion_status" in str(exc) or "next_class" in str(exc):
-            fallback_qs = Report.objects.filter(
-                student=student, term=term, year=year
-            ).only(*base_fields)
+            fallback_qs = Report.objects.filter(student=student, term=term, year=year).only(*base_fields)
             return fallback_qs.first(), False
         raise
 
@@ -255,11 +224,12 @@ def fetch_report(student, term: str, year: int):
 # ---------------------------------------------------------------------------
 # PDF View
 # ---------------------------------------------------------------------------
+
 class StudentReportPDFView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, student_id):
-        # ── Parameter validation ───────────────────────────────────────────
+        # ── Parameter validation ───────────────────────────────────────
         term = request.query_params.get("term")
         if not term:
             return Response({"error": "term is required"}, status=400)
@@ -273,47 +243,42 @@ class StudentReportPDFView(APIView):
         else:
             year = getattr(settings, "CURRENT_YEAR", timezone.now().year)
 
-        # ── Data fetching ──────────────────────────────────────────────────
+        # ── Data fetching ─────────────────────────────────────────────
         student = get_object_or_404(
-            Student.objects.select_related("school_class"),
-            id=student_id,
+            Student.objects.select_related("school_class"), id=student_id,
         )
 
         results = (
-            Result.objects.filter(student=student, term=term, year=year).select_related(
-                "subject"
-            )
+            Result.objects
+            .filter(student=student, term=term, year=year)
+            .select_related("subject")
         )
 
-        # FIXED: Get report with fully populated promotion/next_class fields
-        report, has_promo = fetch_report(student, term, year)
+        report, has_promo = _fetch_report(student, term, year)
 
-        level = (
-            getattr(student.school_class, "level", "basic_7_9")
-            if student.school_class
-            else "basic_7_9"
-        )
+        level = getattr(student.school_class, "level", "basic_7_9") if student.school_class else "basic_7_9"
         thresholds = get_thresholds(level)
         show_position = level != "nursery_kg"
         school_name = SCHOOL_NAMES.get(level, "LEADING STARS ACADEMY")
         school_motto = SCHOOL_MOTTOS.get(level, "WHERE LEADERS ARE BORN")
         interp_rows = get_interp_rows(level)
 
-        # ── Attendance — single aggregate ──────────────────────────────────
-        att = Attendance.objects.filter(
-            student=student, term=term, year=year
-        ).aggregate(
-            total=Count("id"),
-            present=Count("id", filter=Q(status__in=["present", "late"])),
+        # ── Attendance — single aggregate ───────────────────────────────
+        att = (
+            Attendance.objects
+            .filter(student=student, term=term, year=year)
+            .aggregate(
+                total=Count("id"),
+                present=Count("id", filter=Q(status__in=["present", "late"])),
+            )
         )
         total_days = att["total"] or 0
         present_days = att["present"] or 0
         att_percent = round((present_days / total_days) * 100) if total_days else 0
 
-        # ── Subjects ───────────────────────────────────────────────────────
+        # ── Subjects ─────────────────────────────────────────────────
         subjects = []
         total_score = 0.0
-
         for r in results:
             score = r.score or 0.0
             grade, remark = get_grade_and_remark(score, thresholds)
@@ -333,7 +298,7 @@ class StudentReportPDFView(APIView):
         average = round(total_score / subject_count, 1) if subject_count else 0.0
         overall_grade = get_overall_grade(average, thresholds)
 
-        # ── Ranking — single aggregated query ──────────────────────────────
+        # ── Ranking — single aggregated query ────────────────────────
         if show_position and student.school_class:
             ranked = rank_students(student.school_class, term, year)
             position = get_student_position(ranked, student.id)
@@ -345,7 +310,7 @@ class StudentReportPDFView(APIView):
             out_of = 0
             show_position = False
 
-        # ── Promotion fields ───────────────────────────────────────────────
+        # ── Promotion fields ──────────────────────────────────────────
         vacation_date = None
         resumption_date = None
         promotion_status = None
@@ -354,31 +319,17 @@ class StudentReportPDFView(APIView):
         if report:
             vacation_date = report.vacation_date
             resumption_date = report.resumption_date
-            if has_promo:
-                # Reliably extract and nicely capitalize promotion status
-                raw_promo = getattr(report, "promotion_status", None)
-                if raw_promo:
-                    promo_labels = {
-                        "promoted": "Promoted",
-                        "repeated": "Repeated",
-                        "transferred": "Transferred",
-                        "withdrawn": "Withdrawn",
-                    }
-                    promotion_status = promo_labels.get(
-                        raw_promo.lower(), raw_promo.title()
-                    )
 
-                # Fetch joined next_class name effortlessly
+            if has_promo:
+                promotion_status = getattr(report, "promotion_status", None)
+                if promotion_status:
+                    promotion_status = promotion_status.capitalize()
+
                 next_class = getattr(report, "next_class", None)
                 if next_class:
-                    next_class_name = getattr(next_class, "name", None)
+                    next_class_name = next_class.name
 
-        print(f"DEBUG PDF View - Report: {report}")
-        print(f"DEBUG PDF View - has_promo: {has_promo}")
-        print(f"DEBUG PDF View - promotion_status: {promotion_status}")
-        print(f"DEBUG PDF View - next_class_name: {next_class_name}")
-
-        # ── Build PDF ──────────────────────────────────────────────────────
+        # ── Build PDF ────────────────────────────────────────────────
         buffer, pdf_size = build_pdf(
             student=student,
             subjects=subjects,
@@ -404,12 +355,9 @@ class StudentReportPDFView(APIView):
             next_class_name=next_class_name,
         )
 
-        name_slug = re.sub(
-            r"[^A-Za-z0-9_-]+", "_", student.full_name.strip()
-        ).strip("_")
+        name_slug = re.sub(r"[^A-Za-z0-9_-]+", "_", student.full_name.strip()).strip("_")
         if not name_slug:
             name_slug = str(student.admission_number)
-
         filename = f"report_{name_slug}_{term}_{year}.pdf"
 
         response = StreamingHttpResponse(
@@ -425,121 +373,79 @@ class StudentReportPDFView(APIView):
 # ---------------------------------------------------------------------------
 # PDF Building Function
 # ---------------------------------------------------------------------------
+
 def build_pdf(
-    student,
-    subjects,
-    average,
-    overall_grade,
-    total_score,
-    position,
-    out_of,
-    present_days,
-    total_days,
-    att_percent,
-    report,
-    term,
-    year,
-    level,
-    show_position,
-    school_name,
-    school_motto,
-    interp_rows,
-    vacation_date,
-    resumption_date,
-    promotion_status,
-    next_class_name,
+    student, subjects, average, overall_grade, total_score, position, out_of,
+    present_days, total_days, att_percent, report, term, year, level,
+    show_position, school_name, school_motto, interp_rows,
+    vacation_date, resumption_date, promotion_status, next_class_name,
 ):
     """Build the complete PDF and return (BytesIO buffer, size)"""
     buffer = BytesIO()
     pdf = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=12 * mm,
-        rightMargin=12 * mm,
-        topMargin=12 * mm,
-        bottomMargin=12 * mm,
+        buffer, pagesize=A4,
+        leftMargin=12 * mm, rightMargin=12 * mm,
+        topMargin=12 * mm, bottomMargin=12 * mm,
     )
     styles = getSampleStyleSheet()
     elements = []
     para = make_para(styles)
-
     FULL_W = A4[0] - 24 * mm
 
-    # ── Header ────────────────────────────────────────────────────────
+    # ── Header ──────────────────────────────────────────────────────
     logo_cell = load_logo_flowable(width=22 * mm, height=22 * mm) or para("", 9)
-    photo_img = None
 
+    photo_img = None
     if student.photo:
         photo_url = student.photo.url
         photo_path = (
             os.path.join(settings.MEDIA_ROOT, str(student.photo))
-            if not photo_url.startswith("http")
-            else None
+            if not photo_url.startswith("http") else None
         )
-        photo_img = load_image_flowable(
-            photo_path or photo_url, width=20 * mm, height=22 * mm
-        )
-
+        photo_img = load_image_flowable(photo_path or photo_url, width=20 * mm, height=22 * mm)
     photo_cell = photo_img or para("", 9)
 
     school_center = [
         para(school_name, 15, bold=True, color=WHITE, align=TA_CENTER),
-        para(
-            school_motto,
-            7,
-            bold=False,
-            color=colors.HexColor("#93c5fd"),
-            align=TA_CENTER,
-        ),
+        para(school_motto, 7, bold=False, color=colors.HexColor("#93c5fd"), align=TA_CENTER),
         Spacer(1, 2 * mm),
         para("TERMINAL REPORT CARD", 11, bold=True, color=GOLD, align=TA_CENTER),
-        para(
-            TERM_LABELS.get(term, term),
-            8,
-            bold=False,
-            color=colors.HexColor("#e0f2fe"),
-            align=TA_CENTER,
-        ),
+        para(TERM_LABELS.get(term, term), 8, bold=False, color=colors.HexColor("#e0f2fe"), align=TA_CENTER),
     ]
 
     header_table = Table(
         [[logo_cell, school_center, photo_cell]],
         colWidths=[25 * mm, 136 * mm, 25 * mm],
     )
-    header_table.setStyle(
-        TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("ALIGN", (0, 0), (0, 0), "LEFT"),
-            ("ALIGN", (2, 0), (2, 0), "RIGHT"),
-            ("BACKGROUND", (0, 0), (-1, -1), BLUE),
-            ("BOX", (0, 0), (-1, -1), 0, WHITE),
-            ("TOPPADDING", (0, 0), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ("LEFTPADDING", (0, 0), (0, 0), 6),
-            ("RIGHTPADDING", (2, 0), (2, 0), 6),
-        ])
-    )
+    header_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (0, 0), "LEFT"),
+        ("ALIGN", (2, 0), (2, 0), "RIGHT"),
+        ("BACKGROUND", (0, 0), (-1, -1), BLUE),
+        ("BOX", (0, 0), (-1, -1), 0, WHITE),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (0, 0), 6),
+        ("RIGHTPADDING", (2, 0), (2, 0), 6),
+    ]))
     elements.append(header_table)
 
     accent = Table([[""]], colWidths=[FULL_W])
-    accent.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), GOLD),
-            ("TOPPADDING", (0, 0), (-1, -1), 1.5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ])
-    )
+    accent.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), GOLD),
+        ("TOPPADDING", (0, 0), (-1, -1), 1.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
     elements.append(accent)
     elements.append(Spacer(1, 4 * mm))
 
-    # ── Student info ──────────────────────────────────────────────────
+    # ── Student info ────────────────────────────────────────────────
     class_name = student.school_class.name if student.school_class else "-"
     position_text = (
         f"<b>POSITION:</b> {fmt_pos(position)} out of {out_of}"
-        if show_position
-        else "<b>POSITION:</b> N/A"
+        if show_position else "<b>POSITION:</b> N/A"
     )
     avg_color = GREEN if average >= 60 else (GOLD if average >= 45 else RED)
 
@@ -553,11 +459,7 @@ def build_pdf(
         ],
         [
             para(f"<b>STAGE:</b> {class_name}", 9),
-            para(
-                f"<b>AVERAGE:</b> {average} | <b>GRADE:</b> {overall_grade}",
-                9,
-                color=avg_color,
-            ),
+            para(f"<b>AVERAGE:</b> {average} | <b>GRADE:</b> {overall_grade}", 9, color=avg_color),
         ],
         [
             para(f"<b>PUPILS ON ROLL:</b> {out_of or '-'}", 9),
@@ -568,36 +470,25 @@ def build_pdf(
             para(position_text, 9, color=BLUE2),
         ],
         [
-            para(
-                f"<b>PROMOTION STATUS:</b> {promotion_label}",
-                9,
-                color=GREEN if promotion_status == "Promoted" else BLUE2,
-            ),
-            para(
-                f"<b>NEXT CLASS:</b> {next_class_label}",
-                9,
-                color=DGRAY if next_class_name else BLUE2,
-            ),
+            para(f"<b>PROMOTION STATUS:</b> {promotion_label}", 9, color=GREEN if promotion_status else BLUE2),
+            para(f"<b>NEXT CLASS:</b> {next_class_label}", 9, color=BLUE2 if not next_class_name else DGRAY),
         ],
     ]
-
     info_table = Table(info_rows, colWidths=[93 * mm, 93 * mm])
-    info_table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), GRAY),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
-            ("GRID", (0, 0), (-1, -1), 0.4, DIVIDER),
-            ("ROWBACKGROUNDS", (0, 0), (-1, -1), [WHITE, GRAY]),
-            ("LINEBEFORE", (0, 0), (0, -1), 3, BLUE),
-        ])
-    )
+    info_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), GRAY),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
+        ("GRID", (0, 0), (-1, -1), 0.4, DIVIDER),
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [WHITE, GRAY]),
+        ("LINEBEFORE", (0, 0), (0, -1), 3, BLUE),
+    ]))
     elements.append(info_table)
     elements.append(Spacer(1, 4 * mm))
 
-    # ── Subject table ─────────────────────────────────────────────────
+    # ── Subject table ───────────────────────────────────────────────
     elements.append(section_label_row(para, "ACADEMIC PERFORMANCE", FULL_W))
     elements.append(Spacer(1, 1 * mm))
 
@@ -615,17 +506,13 @@ def build_pdf(
 
     col_widths = (
         [50 * mm, 17 * mm, 17 * mm, 17 * mm, 17 * mm, 13 * mm, 13 * mm, 30 * mm]
-        if show_position
-        else [54 * mm, 19 * mm, 19 * mm, 19 * mm, 19 * mm, 14 * mm, 36 * mm]
+        if show_position else
+        [54 * mm, 19 * mm, 19 * mm, 19 * mm, 19 * mm, 14 * mm, 36 * mm]
     )
 
     subj_rows = [subj_header]
-    for i, sub in enumerate(subjects):
-        score_color = (
-            GREEN
-            if sub["score"] >= 60
-            else (GOLD if sub["score"] >= 45 else RED)
-        )
+    for sub in subjects:
+        score_color = GREEN if sub["score"] >= 60 else (GOLD if sub["score"] >= 45 else RED)
         row = [
             para(f" {sub['name']}", 8),
             para(str(sub["reopen"] or "-"), 8, align=TA_CENTER),
@@ -640,25 +527,23 @@ def build_pdf(
         subj_rows.append(row)
 
     subj_table = Table(subj_rows, colWidths=col_widths)
-    subj_table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), BLUE),
-            ("TOPPADDING", (0, 0), (-1, 0), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
-            ("GRID", (0, 0), (-1, -1), 0.4, DIVIDER),
-            ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
-            ("TOPPADDING", (0, 1), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 4),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, MGRAY]),
-            ("BACKGROUND", (4, 1), (4, -1), colors.HexColor("#f0f9ff")),
-        ])
-    )
+    subj_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), BLUE),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        ("GRID", (0, 0), (-1, -1), 0.4, DIVIDER),
+        ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
+        ("TOPPADDING", (0, 1), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, MGRAY]),
+        ("BACKGROUND", (4, 1), (4, -1), colors.HexColor("#f0f9ff")),
+    ]))
     elements.append(subj_table)
     elements.append(Spacer(1, 4 * mm))
 
-    # ── Attendance + Remarks ──────────────────────────────────────────
+    # ── Attendance + Remarks ───────────────────────────────────────
     att_label = section_label_row(para, "ATTENDANCE & CONDUCT", 90 * mm)
     rem_label = section_label_row(para, "CLASS TEACHER REMARKS", 90 * mm)
 
@@ -702,74 +587,56 @@ def build_pdf(
             ])
 
     att_inner = Table(att_rows, colWidths=[28 * mm, 58 * mm])
-    att_inner.setStyle(
-        TableStyle([
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("LEFTPADDING", (0, 0), (-1, -1), 6),
-            ("LINEBELOW", (0, 0), (-1, -2), 0.3, DIVIDER),
-        ])
-    )
+    att_inner.setStyle(TableStyle([
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.3, DIVIDER),
+    ]))
 
-    teacher_remark = (
-        report.teacher_remark if report and report.teacher_remark else None
-    )
-    rem_rows = [
-        [
-            (
-                para(f'"{teacher_remark}"', 9, color=DGRAY)
-                if teacher_remark
-                else para("No remarks recorded.", 9, color=LGRAY)
-            )
-        ]
-    ]
+    teacher_remark = report.teacher_remark if report and report.teacher_remark else None
+    rem_rows = [[
+        para(f'"{teacher_remark}"', 9, color=DGRAY) if teacher_remark
+        else para("No remarks recorded.", 9, color=LGRAY)
+    ]]
     rem_inner = Table(rem_rows, colWidths=[86 * mm])
-    rem_inner.setStyle(
-        TableStyle([
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ])
-    )
+    rem_inner.setStyle(TableStyle([
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+    ]))
 
     att_block = Table([[att_label], [att_inner]], colWidths=[90 * mm])
-    att_block.setStyle(
-        TableStyle([
-            ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
-            ("BACKGROUND", (0, 1), (-1, -1), GRAY),
-        ])
-    )
-
+    att_block.setStyle(TableStyle([
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
+        ("BACKGROUND", (0, 1), (-1, -1), GRAY),
+    ]))
     rem_block = Table([[rem_label], [rem_inner]], colWidths=[90 * mm])
-    rem_block.setStyle(
-        TableStyle([
-            ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
-            ("BACKGROUND", (0, 1), (-1, -1), GRAY),
-        ])
-    )
+    rem_block.setStyle(TableStyle([
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
+        ("BACKGROUND", (0, 1), (-1, -1), GRAY),
+    ]))
 
     bottom_table = Table([[att_block, rem_block]], colWidths=[93 * mm, 93 * mm])
-    bottom_table.setStyle(
-        TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ])
-    )
+    bottom_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
     elements.append(bottom_table)
     elements.append(Spacer(1, 4 * mm))
 
-    # ── Result interpretation ─────────────────────────────────────────
+    # ── Result interpretation ─────────────────────────────────────
     elements.append(section_label_row(para, "RESULT INTERPRETATION KEY", FULL_W))
     elements.append(Spacer(1, 1 * mm))
 
@@ -781,36 +648,29 @@ def build_pdf(
         ]
         for row in interp_rows
     ]
-
     interp_table = Table(interp_data, colWidths=[62 * mm, 62 * mm, 62 * mm])
-    interp_table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), MGRAY),
-            ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
-            ("GRID", (0, 0), (-1, -1), 0.3, DIVIDER),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("LEFTPADDING", (0, 0), (-1, -1), 4),
-            ("ROWBACKGROUNDS", (0, 0), (-1, -1), [WHITE, MGRAY]),
-        ])
-    )
+    interp_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), MGRAY),
+        ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
+        ("GRID", (0, 0), (-1, -1), 0.3, DIVIDER),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [WHITE, MGRAY]),
+    ]))
     elements.append(interp_table)
 
-    # ── Footer ────────────────────────────────────────────────────────
+    # ── Footer ──────────────────────────────────────────────────────
     elements.append(Spacer(1, 4 * mm))
     elements.append(HRFlowable(width="100%", thickness=0.6, color=DIVIDER))
     elements.append(Spacer(1, 2 * mm))
-    elements.append(
-        para(
-            "This report was generated automatically by the School Management System. "
-            "Please contact the school for any queries.",
-            7,
-            color=LGRAY,
-            align=TA_CENTER,
-        )
-    )
+    elements.append(para(
+        "This report was generated automatically by the School Management System. "
+        "Please contact the school for any queries.",
+        7, color=LGRAY, align=TA_CENTER,
+    ))
 
-    # ── Build and stream ──────────────────────────────────────────────
+    # ── Build and stream ──────────────────────────────────────────
     pdf.build(elements)
     pdf_size = buffer.tell()
     buffer.seek(0)
