@@ -1,4 +1,7 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://www.leadingstarsacademy.com/sitemap.xml
+Disallow: /admin/
+Disallow: /api/
+
+Sitemap: https://leadingstarsacademy.com/sitemap.xml

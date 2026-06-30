@@ -1,17 +1,42 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://www.leadingstarsacademy.com/</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/about</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/academics</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/academics/preschool</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/academics/nursery</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/academics/primary</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/academics/junior-high</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/admissions</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/blog</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/news</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/contact</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/privacy-policy</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/terms</loc></url>
-  <url><loc>https://www.leadingstarsacademy.com/cookie-policy</loc></url>
+  <url><loc>https://leadingstarsacademy.com/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://leadingstarsacademy.com/about</loc><priority>0.9</priority></url>
+  <url><loc>https://leadingstarsacademy.com/academics</loc><priority>0.9</priority></url>
+  <url><loc>https://leadingstarsacademy.com/academics/preschool</loc><priority>0.8</priority></url>
+  <url><loc>https://leadingstarsacademy.com/academics/nursery</loc><priority>0.8</priority></url>
+  <url><loc>https://leadingstarsacademy.com/academics/primary</loc><priority>0.8</priority></url>
+  <url><loc>https://leadingstarsacademy.com/academics/junior-high</loc><priority>0.8</priority></url>
+  <url><loc>https://leadingstarsacademy.com/admissions</loc><priority>0.9</priority></url>
+  <url><loc>https://leadingstarsacademy.com/blog</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://leadingstarsacademy.com/news</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://leadingstarsacademy.com/contact</loc><priority>0.7</priority></url>
+  <url><loc>https://leadingstarsacademy.com/privacy-policy</loc><priority>0.3</priority></url>
+  <url><loc>https://leadingstarsacademy.com/terms</loc><priority>0.3</priority></url>
+  <url><loc>https://leadingstarsacademy.com/cookie-policy</loc><priority>0.3</priority></url>
+
+  <!-- Blog posts -->
+  <url><loc>https://leadingstarsacademy.com/blog/building-reading-habits-in-young-children</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/preparing-your-child-for-preschool</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/why-stem-education-matters-in-ghana</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/helping-children-develop-strong-study-habits</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/understanding-the-ghanaian-curriculum</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/screen-time-and-young-children</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/raising-confident-children</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/mathematics-anxiety-in-children</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/choosing-the-right-school</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/the-power-of-play-in-learning</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/helping-children-handle-failure</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/nurturing-curiosity-in-children</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/sleep-and-school-success</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/transitioning-to-junior-high</loc></url>
+  <url><loc>https://leadingstarsacademy.com/blog/the-importance-of-handwriting</loc></url>
+
+  <!-- News -->
+  <url><loc>https://leadingstarsacademy.com/news/leading-stars-wins-regional-science-fair-2024</loc></url>
+  <url><loc>https://leadingstarsacademy.com/news/annual-reading-week-2024</loc></url>
+  <url><loc>https://leadingstarsacademy.com/news/new-stem-lab-officially-opened</loc></url>
+  <url><loc>https://leadingstarsacademy.com/news/inter-house-sports-day-2024</loc></url>
+  <url><loc>https://leadingstarsacademy.com/news/creative-arts-festival-celebrates-student-talent</loc></url>
+  <url><loc>https://leadingstarsacademy.com/news/parent-teacher-association-launches-mentorship-programme</loc></url>
 </urlset>
