@@ -2,7 +2,7 @@ import Container from "./Container";
 
 const PageHeader = ({ eyebrow, title, description, bgClass = "bg-cream" }) => {
   return (
-    <section className={`${bgClass} py-16 md:py-24`}>
+    <section className={`${bgClass} pt-[68px] py-16 md:py-24`}>
       <Container>
         <div className="max-w-3xl">
           {eyebrow && (
