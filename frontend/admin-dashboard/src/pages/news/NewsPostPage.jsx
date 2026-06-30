@@ -6,7 +6,7 @@ import PageHeader from '../../components/common/PageHeader';
 import Prose from '../../components/common/Prose';
 import { newsPosts } from '../../data/newsPosts';
 import { articleSchema, breadcrumbSchema } from '../../seo/schemas';
-import { Calendar, Clock, User, ArrowLeft, Share2, Facebook, Twitter, Linkedin, ChevronRight } from 'lucide-react';
+import { Calendar, Clock, User, ArrowLeft, Share2, ChevronRight } from "lucide-react";
 
 const NewsPostPage = () => {
   const { slug } = useParams();
@@ -110,14 +110,9 @@ const NewsPostPage = () => {
               {/* Share Buttons */}
               <div className="ml-auto flex items-center gap-2">
                 <span className="text-xs text-slate-500 uppercase tracking-wider mr-1">Share</span>
-                <button className="p-2 rounded-full bg-white border border-slate-200 hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all" aria-label="Share on Facebook">
-                  <Facebook className="w-4 h-4" />
                 </button>
-                <button className="p-2 rounded-full bg-white border border-slate-200 hover:bg-sky-500 hover:text-white hover:border-sky-500 transition-all" aria-label="Share on Twitter">
-                  <Twitter className="w-4 h-4" />
                 </button>
                 <button className="p-2 rounded-full bg-white border border-slate-200 hover:bg-blue-700 hover:text-white hover:border-blue-700 transition-all" aria-label="Share on LinkedIn">
-                  <Linkedin className="w-4 h-4" />
                 </button>
               </div>
             </div>
