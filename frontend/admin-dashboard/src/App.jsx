@@ -1,28 +1,36 @@
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { HelmetProvider } from "react-helmet-async";
 import { isAuthenticated, getUser } from "./services/auth";
 import { wakeUpServer } from "./services/api";
 
 import PublicRoutes from "./routes/PublicRoutes";
+import ScrollToTop from "./components/common/ScrollToTop";
+import PageLoader from "./components/common/PageLoader";
 
-import Layout from "./components/Layout";
+// Auth pages (kept eager – small and frequently accessed)
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import Dashboard from "./pages/Dashboard";
-import Students from "./pages/Students";
-import Teachers from "./pages/Teachers";
-import Classes from "./pages/Classes";
-import Results from "./pages/Results";
-import Attendance from "./pages/Attendance";
-import Announcements from "./pages/Announcements";
-import Fees from "./pages/Fees";
-import Accounts from "./pages/Accounts";
-import Admissions from "./pages/Admissions";
-import Subjects from "./pages/Subjects";
-import Reports from "./pages/Reports";
-import AdminApprovals from "./pages/AdminApprovals";
-import StudentPortal from "./pages/student/StudentPortal";
-import TeacherPortal from "./pages/teacher/TeacherPortal";
+
+// Admin layout (eager – the shell loads instantly)
+import Layout from "./components/Layout";
+
+// Lazy-load admin pages to keep the public bundle lean
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Students = lazy(() => import("./pages/Students"));
+const Teachers = lazy(() => import("./pages/Teachers"));
+const Classes = lazy(() => import("./pages/Classes"));
+const Results = lazy(() => import("./pages/Results"));
+const Attendance = lazy(() => import("./pages/Attendance"));
+const Announcements = lazy(() => import("./pages/Announcements"));
+const Fees = lazy(() => import("./pages/Fees"));
+const Accounts = lazy(() => import("./pages/Accounts"));
+const Admissions = lazy(() => import("./pages/Admissions"));
+const Subjects = lazy(() => import("./pages/Subjects"));
+const Reports = lazy(() => import("./pages/Reports"));
+const AdminApprovals = lazy(() => import("./pages/AdminApprovals"));
+const StudentPortal = lazy(() => import("./pages/student/StudentPortal"));
+const TeacherPortal = lazy(() => import("./pages/teacher/TeacherPortal"));
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   if (!isAuthenticated()) return <Navigate to="/login" replace />;
@@ -44,57 +52,68 @@ function App() {
   }, []);
 
   return (
-    <Router>
-      <Routes>
-        {PublicRoutes}
+    <HelmetProvider>
+      <Router>
+        <ScrollToTop />
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            {/* Public marketing site (Home, About, Academics, Blog, News, Legal, etc.) */}
+            {PublicRoutes}
 
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+            {/* Authentication */}
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
 
-        <Route
-          path="/student"
-          element={
-            <ProtectedRoute allowedRoles={["student"]}>
-              <StudentPortal />
-            </ProtectedRoute>
-          }
-        />
+            {/* Student Portal */}
+            <Route
+              path="/student"
+              element={
+                <ProtectedRoute allowedRoles={["student"]}>
+                  <StudentPortal />
+                </ProtectedRoute>
+              }
+            />
 
-        <Route
-          path="/teacher"
-          element={
-            <ProtectedRoute allowedRoles={["teacher"]}>
-              <TeacherPortal />
-            </ProtectedRoute>
-          }
-        />
+            {/* Teacher Portal */}
+            <Route
+              path="/teacher"
+              element={
+                <ProtectedRoute allowedRoles={["teacher"]}>
+                  <TeacherPortal />
+                </ProtectedRoute>
+              }
+            />
 
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute allowedRoles={["admin"]}>
-              <Layout />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<Dashboard />} />
-          <Route path="students" element={<Students />} />
-          <Route path="teachers" element={<Teachers />} />
-          <Route path="classes" element={<Classes />} />
-          <Route path="admissions" element={<Admissions />} />
-          <Route path="results" element={<Results />} />
-          <Route path="attendance" element={<Attendance />} />
-          <Route path="subjects" element={<Subjects />} />
-          <Route path="announcements" element={<Announcements />} />
-          <Route path="fees" element={<Fees />} />
-          <Route path="accounts" element={<Accounts />} />
-          <Route path="reports" element={<Reports />} />
-          <Route path="admin-approvals" element={<AdminApprovals />} />
-        </Route>
+            {/* Admin Portal */}
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <Layout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Dashboard />} />
+              <Route path="students" element={<Students />} />
+              <Route path="teachers" element={<Teachers />} />
+              <Route path="classes" element={<Classes />} />
+              <Route path="admissions" element={<Admissions />} />
+              <Route path="results" element={<Results />} />
+              <Route path="attendance" element={<Attendance />} />
+              <Route path="subjects" element={<Subjects />} />
+              <Route path="announcements" element={<Announcements />} />
+              <Route path="fees" element={<Fees />} />
+              <Route path="accounts" element={<Accounts />} />
+              <Route path="reports" element={<Reports />} />
+              <Route path="admin-approvals" element={<AdminApprovals />} />
+            </Route>
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Router>
+            {/* Catch-all */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+      </Router>
+    </HelmetProvider>
   );
 }
 
