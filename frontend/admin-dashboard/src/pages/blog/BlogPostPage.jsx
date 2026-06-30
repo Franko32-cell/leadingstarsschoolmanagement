@@ -7,7 +7,7 @@ import { authors } from '../../data/authors';
 import {
   articleSchema,
   breadcrumbSchema,
-} from '../components/seo/schemas';
+} from '../../seo/schemas';
 
 export default function BlogPostPage() {
   const { slug } = useParams();
