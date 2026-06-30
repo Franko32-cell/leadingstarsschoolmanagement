@@ -106,13 +106,22 @@ const NewsPostPage = () => {
                   {getReadingTime(post.content)} min read
                 </span>
               </div>
-
               {/* Share Buttons */}
               <div className="ml-auto flex items-center gap-2">
                 <span className="text-xs text-slate-500 uppercase tracking-wider mr-1">Share</span>
+                <button
+                  className="p-2 rounded-full bg-white border border-slate-200 hover:bg-blue-600 hover:text-white transition-all"
+                  onClick={() => window.open('https://www.facebook.com/sharer/sharer.php?u=' + window.location.href)}
+                  aria-label="Share on Facebook"
+                >
+                  <Share2 className="w-4 h-4" />
                 </button>
-                </button>
-                <button className="p-2 rounded-full bg-white border border-slate-200 hover:bg-blue-700 hover:text-white hover:border-blue-700 transition-all" aria-label="Share on LinkedIn">
+                <button
+                  className="p-2 rounded-full bg-white border border-slate-200 hover:bg-sky-500 hover:text-white transition-all"
+                  onClick={() => window.open('https://twitter.com/intent/tweet?url=' + window.location.href)}
+                  aria-label="Share on Twitter"
+                >
+                  <Share2 className="w-4 h-4" />
                 </button>
               </div>
             </div>
