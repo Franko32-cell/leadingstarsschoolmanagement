@@ -2,23 +2,38 @@
  * Reports.jsx
  * Drop-in replacement for: frontend/admin-dashboard/src/pages/Reports.jsx
  *
- * Fixes vs previous version:
- * - Completely matches updated backend JSON properties to keep UI pills and banners perfectly synced
- * - Year selector added to filter bar; correctly passed to all API calls including downloadPDF
- * - Unsaved-changes guard via beforeunload listener
- * - Loading skeleton on class/student dropdowns
+ * Fixes vs previous (broken) version:
+ *  - File is now syntactically complete (previous version was truncated mid-JSX,
+ *    which caused the Vite/esbuild "Unexpected end of file" build error)
+ *
+ * Improvements in this pass:
+ *  - "Save Remarks" button disabled when there are no unsaved changes (prevents
+ *    redundant API calls / accidental re-saves)
+ *  - Promotion status buttons reset next_class when switching away from
+ *    promoted/transferred, avoiding a stale next_class value being saved
+ *  - Added aria-live region for save/error feedback (screen reader friendliness)
+ *  - Added a "Reset filters" affordance when no class/student is selected
+ *  - Memoized derived booleans/values with useMemo where they're recalculated
+ *    on every render but only depend on `report`/`remarks`
+ *  - Defensive `Number(selectedYear)` cast when building query strings
+ *  - Avoids re-fetching report when selectedStudent is cleared (guards added)
+ *  - Small accessibility labels (aria-label) added to icon-only / ambiguous
+ *    controls
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import API from "../services/api";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+
 const TERMS = [
   { value: "term1", label: "Term 1" },
   { value: "term2", label: "Term 2" },
   { value: "term3", label: "Term 3" },
 ];
+
 const CURRENT_TERM = TERMS[TERMS.length - 1].value;
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -120,6 +135,7 @@ const PROMO_WITH_NEXT_CLASS = new Set(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
 const getStudentName = (s) =>
   s?.student_name ||
   (s?.first_name ? `${s.first_name} ${s.last_name || ""}`.trim() : null) ||
@@ -127,8 +143,10 @@ const getStudentName = (s) =>
   "Unknown";
 
 const fmt = (v) => (v == null ? "-" : Math.round(v));
+
 const calcAttendancePct = (present, total) =>
   total ? Math.round((present / total) * 100) : 0;
+
 const dateOrNull = (v) => (v && v.trim() !== "" ? v : null);
 
 const EMPTY_REMARKS = {
@@ -144,6 +162,7 @@ const EMPTY_REMARKS = {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
 const SectionHeader = ({ icon, title }) => (
   <div className="flex items-center gap-2 mb-3">
     <span aria-hidden="true">{icon}</span>
@@ -191,7 +210,10 @@ const PromotionBadge = ({ status }) => {
 
 const ErrorBanner = ({ message }) =>
   message ? (
-    <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
+    <div
+      role="alert"
+      className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg"
+    >
       <span className="text-red-400 flex-shrink-0" aria-hidden="true">
         ⚠
       </span>
@@ -212,6 +234,7 @@ const selectCls =
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
+
 const Reports = () => {
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
@@ -219,13 +242,14 @@ const Reports = () => {
   const [selectedStudent, setSelectedStudent] = useState("");
   const [selectedTerm, setSelectedTerm] = useState(CURRENT_TERM);
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
-  const [report, setReport] = useState(null);
 
+  const [report, setReport] = useState(null);
   const [loadingClasses, setLoadingClasses] = useState(false);
+  const [loadingStudents, setLoadingStudents] = useState(false);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
-  // Per-action error states
+  // Per-action error states so one failure doesn't clobber another
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [pdfError, setPdfError] = useState("");
@@ -236,6 +260,7 @@ const Reports = () => {
 
   // Track whether there are unsaved remark changes
   const hasUnsavedChanges = useRef(false);
+  const [hasUnsaved, setHasUnsaved] = useState(false); // mirrors ref, for UI
 
   // -------------------------------------------------------------------------
   // Unsaved-changes guard
@@ -276,29 +301,40 @@ const Reports = () => {
       setReport(null);
       return;
     }
+    let cancelled = false;
     const fetchStudents = async () => {
+      setLoadingStudents(true);
       try {
         const res = await API.get(`/students/?school_class=${selectedClass}`);
-        setStudents(res.data.results || res.data);
+        if (!cancelled) setStudents(res.data.results || res.data);
       } catch {
-        setLoadError("Failed to load students.");
+        if (!cancelled) setLoadError("Failed to load students.");
+      } finally {
+        if (!cancelled) setLoadingStudents(false);
       }
     };
     fetchStudents();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedClass]);
 
   const fetchReport = useCallback(async () => {
-    if (!selectedStudent || !selectedTerm) return;
-
+    if (!selectedStudent || !selectedTerm) {
+      setReport(null);
+      return;
+    }
     setLoading(true);
     setLoadError("");
     setReport(null);
     setRemarksSaved(false);
     hasUnsavedChanges.current = false;
-
+    setHasUnsaved(false);
     try {
       const res = await API.get(
-        `/report/student/${selectedStudent}/?term=${selectedTerm}&year=${selectedYear}`
+        `/report/student/${selectedStudent}/?term=${selectedTerm}&year=${Number(
+          selectedYear
+        )}`
       );
       setReport(res.data);
       setRemarks({
@@ -328,21 +364,30 @@ const Reports = () => {
   // -------------------------------------------------------------------------
   // Actions
   // -------------------------------------------------------------------------
+
   const setRemark = (key, val) => {
-    setRemarks((prev) => ({ ...prev, [key]: val }));
+    setRemarks((prev) => {
+      const next = { ...prev, [key]: val };
+      // Clear next_class automatically when switching to a status that
+      // doesn't use it, so a stale value never gets silently saved.
+      if (key === "promotion_status" && !PROMO_WITH_NEXT_CLASS.has(val)) {
+        next.next_class = "";
+      }
+      return next;
+    });
     setRemarksSaved(false);
     hasUnsavedChanges.current = true;
+    setHasUnsaved(true);
   };
 
   const saveRemarks = async () => {
     setSavingRemarks(true);
     setRemarksSaved(false);
     setSaveError("");
-
     try {
       const res = await API.patch(`/report/student/${selectedStudent}/`, {
         term: selectedTerm,
-        year: selectedYear,
+        year: Number(selectedYear),
         conduct: remarks.conduct,
         interest: remarks.interest,
         teacher_remark: remarks.teacher_remark,
@@ -352,7 +397,7 @@ const Reports = () => {
         next_class: remarks.next_class || null,
       });
 
-      // Update only the report fields that PATCH returns — keeps React UI perfectly synced
+      // Update only the report fields that PATCH returns — don't refetch the whole report
       setReport((prev) => ({
         ...prev,
         conduct: res.data.conduct,
@@ -367,6 +412,7 @@ const Reports = () => {
 
       setRemarksSaved(true);
       hasUnsavedChanges.current = false;
+      setHasUnsaved(false);
     } catch (err) {
       setSaveError(
         err.response?.data
@@ -383,7 +429,9 @@ const Reports = () => {
     setPdfError("");
     try {
       const res = await API.get(
-        `/report/student/${selectedStudent}/pdf/?term=${selectedTerm}&year=${selectedYear}`,
+        `/report/student/${selectedStudent}/pdf/?term=${selectedTerm}&year=${Number(
+          selectedYear
+        )}`,
         { responseType: "blob" }
       );
       const url = window.URL.createObjectURL(new Blob([res.data]));
@@ -404,16 +452,29 @@ const Reports = () => {
     }
   };
 
+  const resetFilters = () => {
+    setSelectedClass("");
+    setSelectedStudent("");
+    setSelectedTerm(CURRENT_TERM);
+    setSelectedYear(CURRENT_YEAR);
+    setReport(null);
+    setLoadError("");
+  };
+
   // -------------------------------------------------------------------------
   // Derived values
   // -------------------------------------------------------------------------
   const level = report?.level || "basic_7_9";
   const gradeScale = level === "basic_7_9" ? GRADE_SCALE_B79 : GRADE_SCALE_B16;
-  const subjectNames = report?.subjects?.map((s) => s.subject) || [];
 
-  const attendancePct = calcAttendancePct(
-    report?.attendance,
-    report?.attendance_total
+  const subjectNames = useMemo(
+    () => report?.subjects?.map((s) => s.subject) || [],
+    [report]
+  );
+
+  const attendancePct = useMemo(
+    () => calcAttendancePct(report?.attendance, report?.attendance_total),
+    [report]
   );
 
   const avgColor =
@@ -451,11 +512,23 @@ const Reports = () => {
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Page heading */}
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Student Reports</h1>
-          <p className="text-sm text-slate-400 mt-0.5">
-            View, annotate and download terminal report cards
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">
+              Student Reports
+            </h1>
+            <p className="text-sm text-slate-400 mt-0.5">
+              View, annotate and download terminal report cards
+            </p>
+          </div>
+          {(selectedClass || selectedStudent) && (
+            <button
+              onClick={resetFilters}
+              className="text-xs font-semibold text-slate-400 hover:text-slate-600 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors"
+            >
+              Reset filters
+            </button>
+          )}
         </div>
 
         {/* Load error */}
@@ -496,10 +569,12 @@ const Reports = () => {
                 setSelectedStudent(e.target.value);
                 setLoadError("");
               }}
-              disabled={!students.length}
+              disabled={!selectedClass || loadingStudents || !students.length}
               className={`${selectCls} disabled:opacity-40 disabled:cursor-not-allowed`}
             >
-              <option value="">Select Student</option>
+              <option value="">
+                {loadingStudents ? "Loading…" : "Select Student"}
+              </option>
               {students.map((s) => (
                 <option key={s.id} value={s.id}>
                   {getStudentName(s)}
@@ -551,7 +626,9 @@ const Reports = () => {
               >
                 {downloading ? (
                   <>
-                    <span className="animate-spin inline-block">⟳</span>{" "}
+                    <span className="animate-spin inline-block" aria-hidden="true">
+                      ⟳
+                    </span>{" "}
                     Generating…
                   </>
                 ) : (
@@ -736,7 +813,7 @@ const Reports = () => {
                         GRADE_COLORS[sub.grade] || "bg-slate-100 text-slate-600";
                       return (
                         <tr
-                          key={i}
+                          key={sub.subject ?? i}
                           className={`border-t border-slate-50 hover:bg-blue-50/30 transition-colors ${
                             i % 2 === 0 ? "bg-white" : "bg-slate-50/40"
                           }`}
@@ -819,6 +896,7 @@ const Reports = () => {
                       aria-valuenow={attendancePct}
                       aria-valuemin={0}
                       aria-valuemax={100}
+                      aria-label="Attendance percentage"
                     >
                       <div
                         className={`h-full rounded-full transition-all duration-500 ${attBarColor}`}
@@ -927,6 +1005,7 @@ const Reports = () => {
                 {/* ── Promotion Status ── */}
                 <div className="border-t border-slate-100 pt-4">
                   <SectionHeader icon="🎓" title="Promotion Status" />
+
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     {PROMOTION_OPTIONS.map((opt) => {
                       const active = remarks.promotion_status === opt.value;
@@ -949,4 +1028,98 @@ const Reports = () => {
                           <span>{opt.label}</span>
                           {active && (
                             <span
-                              className="ml-auto text-
+                              className="ml-auto text-xs font-bold"
+                              aria-hidden="true"
+                            >
+                              ✓
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Next class — shown for promoted and transferred */}
+                  {showNextClassDropdown && (
+                    <div>
+                      <FormLabel>
+                        {activePromoOption?.nextLabel || "Next Class"}{" "}
+                        <span className="text-slate-300 normal-case font-normal">
+                          (optional)
+                        </span>
+                      </FormLabel>
+                      <select
+                        value={remarks.next_class}
+                        onChange={(e) =>
+                          setRemark("next_class", e.target.value)
+                        }
+                        className={selectCls}
+                      >
+                        <option value="">— Select Class —</option>
+                        {classes.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Save */}
+                <div className="flex items-center gap-3 pt-1">
+                  <button
+                    onClick={saveRemarks}
+                    disabled={savingRemarks || !hasUnsaved}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
+                  >
+                    {savingRemarks ? "Saving…" : "Save Remarks"}
+                  </button>
+                  <span aria-live="polite" className="contents">
+                    {remarksSaved && (
+                      <span
+                        className="flex items-center gap-1 text-green-600 text-xs font-semibold"
+                        role="status"
+                      >
+                        <span aria-hidden="true">✓</span> Saved
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Empty states ─────────────────────────────────────────────── */}
+        {!loading && !report && selectedStudent && !loadError && (
+          <div className="text-center py-20">
+            <div className="text-5xl mb-4" aria-hidden="true">
+              📋
+            </div>
+            <p className="text-base font-medium text-slate-500">
+              No report found for this student and term.
+            </p>
+            <p className="text-sm text-slate-400 mt-1">
+              Make sure results have been entered for {selectedTerm}{" "}
+              {selectedYear}.
+            </p>
+          </div>
+        )}
+
+        {!selectedStudent && (
+          <div className="text-center py-20">
+            <div className="text-5xl mb-4" aria-hidden="true">
+              🎓
+            </div>
+            <p className="text-base font-medium text-slate-400">
+              Select a class and student to view their report.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default Reports;
