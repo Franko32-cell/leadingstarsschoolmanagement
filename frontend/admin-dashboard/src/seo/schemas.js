@@ -104,3 +104,15 @@ export const coursePeriodSchema = (program) => ({
     sameAs: SITE_URL,
   },
 });
+export const schoolSchema = {
+  "@context": "https://schema.org",
+  "@type": "School",
+  "name": "Leading Stars Academy",
+  "description": "A premium private school in Accra offering preschool, nursery, primary, and junior high education.",
+  "url": "https://leadingstarsacademy.com",
+  "address": {
+    "@type": "PostalAddress",
+    "addressLocality": "Accra",
+    "addressCountry": "GH"
+  }
+};
