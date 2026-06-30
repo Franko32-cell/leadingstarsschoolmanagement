@@ -1,5 +1,5 @@
 import { useEffect, lazy, Suspense } from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import { isAuthenticated, getUser } from "./services/auth";
 import { wakeUpServer } from "./services/api";
@@ -53,7 +53,7 @@ function App() {
 
   return (
     <HelmetProvider>
-      <Router>
+
         <ScrollToTop />
         <Suspense fallback={<PageLoader />}>
           <Routes>
@@ -112,7 +112,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
-      </Router>
+
     </HelmetProvider>
   );
 }
