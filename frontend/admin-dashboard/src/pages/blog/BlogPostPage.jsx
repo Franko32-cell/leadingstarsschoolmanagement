@@ -1,9 +1,9 @@
 import { useParams, Link, Navigate } from 'react-router-dom';
 import { Clock, Calendar, ArrowLeft } from 'lucide-react';
-import SEO from '../components/seo/SEO';
-import Breadcrumbs from '../components/common/Breadcrumbs';
-import { getPostBySlug, getRelatedPosts } from '../data/blogPosts';
-import { authors } from '../data/authors';
+import SEO from '../../seo/SEO';
+import Breadcrumbs from '../../components/common/Breadcrumbs';
+import { getPostBySlug, getRelatedPosts } from '../../data/blogPosts';
+import { authors } from '../../data/authors';
 import {
   articleSchema,
   breadcrumbSchema,

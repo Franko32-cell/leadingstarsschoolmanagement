@@ -1,10 +1,10 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, Search } from 'lucide-react';
-import SEO from '../components/seo/SEO';
-import Breadcrumbs from '../components/common/Breadcrumbs';
-import { blogPosts } from '../data/blogPosts';
-import { authors } from '../data/authors';
+import SEO from '../../seo/SEO';
+import Breadcrumbs from '../../components/common/Breadcrumbs';
+import { blogPosts } from '../../data/blogPosts';
+import { authors } from '../../data/authors';
 
 export default function BlogIndexPage() {
   const [query, setQuery] = useState('');
