@@ -179,16 +179,15 @@ const SectionLabel = ({ children }) => (
 const QuickActionCard = ({ label, description, path, bgColor, iconBg, accentColor, icon, index }) => {
   const navigate = useNavigate();
   return (
-    <button
+        <button
       onClick={() => navigate(path)}
-      style={{ animationDelay: `${index * 60}ms`, background: bgColor }}
+      style={{ animationDelay: `${index * 60}ms`, background: bgColor, borderColor: `${accentColor}30` }}
       className={`
         group relative rounded-2xl p-4 text-left overflow-hidden
         border transition-all duration-200 animate-fade-in
         hover:shadow-md hover:-translate-y-0.5 active:scale-[0.99]
       `}
-      style={{ background: bgColor, borderColor: `${accentColor}30` }}
-    >
+    > 
       <div
         className="w-9 h-9 rounded-xl flex items-center justify-center text-lg mb-3"
         style={{ background: iconBg }}
