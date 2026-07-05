@@ -6,6 +6,13 @@ import Breadcrumbs from '../../components/common/Breadcrumbs';
 import { blogPosts } from '../../data/blogPosts';
 import { authors } from '../../data/authors';
 
+const defaultAuthor = {
+  name: 'Leading Stars Academy',
+  role: 'Editorial',
+  avatar: '/assets/logo.jpeg',
+  bio: '',
+};
+
 export default function BlogIndexPage() {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All');
@@ -79,7 +86,7 @@ export default function BlogIndexPage() {
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 pb-20">
           {filtered.map((post) => {
-            const author = authors[post.authorSlug];
+            const author = authors[post.authorSlug] || defaultAuthor;
             return (
               <article
                 key={post.slug}

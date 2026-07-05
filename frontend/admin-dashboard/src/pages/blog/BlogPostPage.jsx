@@ -4,6 +4,13 @@ import SEO from '../../seo/SEO';
 import Breadcrumbs from '../../components/common/Breadcrumbs';
 import { getPostBySlug, getRelatedPosts } from '../../data/blogPosts';
 import { authors } from '../../data/authors';
+
+const defaultAuthor = {
+  name: 'Leading Stars Academy',
+  role: 'Editorial',
+  avatar: '/assets/logo.jpeg',
+  bio: '',
+};
 import {
   articleSchema,
   breadcrumbSchema,
@@ -15,7 +22,7 @@ export default function BlogPostPage() {
 
   if (!post) return <Navigate to="/blog" replace />;
 
-  const author = authors[post.authorSlug];
+  const author = authors[post.authorSlug] || defaultAuthor;
   const related = getRelatedPosts(slug);
   const fullPost = { ...post, author };
 

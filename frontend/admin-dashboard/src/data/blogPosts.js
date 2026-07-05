@@ -90,7 +90,7 @@ export const blogPosts = [
     category: 'STEM',
     tags: ['stem', 'ghana', 'future-skills'],
     image: '/blog/stem.jpg',
-    authorSlug: 'Mrs. Mercy Okyere-Darko',
+    authorSlug: 'mrs-mercy-okyere-darko',
     publishedAt: '2024-10-05',
     readingTime: 8,
     content: `
