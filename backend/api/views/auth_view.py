@@ -48,18 +48,19 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        username = identifier
+        normalized_identifier = str(identifier).strip()
+        username = normalized_identifier
 
-        if not User.objects.filter(username=identifier).exists():
+        if not User.objects.filter(username__iexact=normalized_identifier).exists():
             try:
-                student  = Student.objects.get(admission_number__iexact=identifier)
+                student = Student.objects.get(admission_number__iexact=normalized_identifier)
                 username = student.user.username
             except Student.DoesNotExist:
                 pass
 
-            if username == identifier:
+            if username == normalized_identifier:
                 try:
-                    teacher  = Teacher.objects.get(teacher_id__iexact=identifier)
+                    teacher = Teacher.objects.get(teacher_id__iexact=normalized_identifier)
                     username = teacher.user.username
                 except Teacher.DoesNotExist:
                     pass
