@@ -89,30 +89,34 @@ export const fetchResultsSummary = async (classId, term, year) => {
 
 // ── Reports ───────────────────────────────────────────────────────────────
 
-export const fetchStudentReport = async (studentId, term) => {
-  const r = await API.get(`/report/student/${studentId}/?term=${term}`);
+export const fetchStudentReport = async (studentId, term, year) => {
+  const query = new URLSearchParams({ term });
+  if (year) query.set("year", String(year));
+  const r = await API.get(`/report/student/${studentId}/?${query.toString()}`);
   return r.data;
 };
 
-export const saveRemarks = async (studentId, term, remarks) => {
-  await API.patch(`/report/student/${studentId}/`, { term, ...remarks });
+export const saveRemarks = async (studentId, term, year, remarks) => {
+  await API.patch(`/report/student/${studentId}/`, { term, year, ...remarks });
   // Re-fetch so the caller gets the latest saved state
-  return fetchStudentReport(studentId, term);
+  return fetchStudentReport(studentId, term, year);
 };
 
 /**
  * Downloads the report PDF and triggers a browser download.
  * Returns the object URL (caller should revoke it when done).
  */
-export const downloadReportPDF = async (studentId, term) => {
+export const downloadReportPDF = async (studentId, term, year) => {
+  const query = new URLSearchParams({ term });
+  if (year) query.set("year", String(year));
   const r = await API.get(
-    `/report/student/${studentId}/pdf/?term=${term}`,
+    `/report/student/${studentId}/pdf/?${query.toString()}`,
     { responseType: "blob" }
   );
   const url  = window.URL.createObjectURL(new Blob([r.data]));
   const link = document.createElement("a");
   link.href  = url;
-  link.setAttribute("download", `report_${studentId}_${term}.pdf`);
+  link.setAttribute("download", `report_${studentId}_${term}${year ? `_${year}` : ""}.pdf`);
   document.body.appendChild(link);
   link.click();
   link.remove();
