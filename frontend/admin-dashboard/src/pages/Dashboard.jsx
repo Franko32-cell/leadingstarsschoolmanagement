@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getDashboard } from "../services/dashboardService";
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
@@ -348,7 +348,7 @@ const Dashboard = () => {
 
   const today = new Date().toISOString().split("T")[0];
 
-  const loadAll = async (isRefresh = false) => {
+  const loadAll = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     setError("");
@@ -379,7 +379,15 @@ const Dashboard = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [today]);
+
+  useEffect(() => {
+    const init = async () => {
+      await loadAll();
+    };
+
+    init();
+  }, [loadAll]);
 
   const collectionRate = feeStats?.collection_rate ?? 0;
   const attPercent =
