@@ -4,6 +4,16 @@ const BASE_URL = import.meta.env.VITE_API_URL + "/api";
 
 const PUBLIC_ENDPOINTS = ["/auth/login/", "/auth/refresh/", "/auth/register/"];
 
+// Helper: derive pathname from config url (works with absolute or relative URLs)
+const getPathname = (url) => {
+  try {
+    // new URL(relative, base) works for both absolute and relative URLs
+    return new URL(url, BASE_URL).pathname;
+  } catch (e) {
+    return url || "";
+  }
+};
+
 // ── Axios instance ─────────────────────────────────────────────
 const API = axios.create({
   baseURL: BASE_URL,   
@@ -12,7 +22,7 @@ const API = axios.create({
 
 // ── Request interceptor — attach JWT ──────────────────────────
 API.interceptors.request.use((config) => {
-  const isPublic = PUBLIC_ENDPOINTS.some((path) => config.url?.includes(path));
+  const isPublic = PUBLIC_ENDPOINTS.some((path) => getPathname(config.url).startsWith(path));
   if (!isPublic) {
     const token = localStorage.getItem("access");
     if (token) {
@@ -28,7 +38,7 @@ API.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     const isPublic = PUBLIC_ENDPOINTS.some((path) =>
-      originalRequest.url?.includes(path)
+      getPathname(originalRequest.url).startsWith(path)
     );
 
     if (
