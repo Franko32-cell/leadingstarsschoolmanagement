@@ -68,6 +68,12 @@ class LoginView(APIView):
         user = authenticate(request=request, username=username, password=password)
 
         if user is None:
+            ip = request.META.get("HTTP_X_FORWARDED_FOR") or request.META.get("REMOTE_ADDR")
+            logger.warning(
+                "Unauthorized login attempt: identifier=%s ip=%s",
+                normalized_identifier,
+                ip,
+            )
             return Response(
                 {"error": "Invalid credentials"},
                 status=status.HTTP_401_UNAUTHORIZED,
