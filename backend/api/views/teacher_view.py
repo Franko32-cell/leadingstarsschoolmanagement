@@ -45,3 +45,20 @@ class TeacherViewSet(viewsets.ModelViewSet):
         teacher.user.save(update_fields=["password"])
 
         return Response({"new_password": new_password})
+
+    @action(detail=False, methods=["post"], url_path="bulk-reset-default")
+    def bulk_reset_default(self, request):
+        """
+        TEMPORARY — one-time fix for teachers whose password no longer
+        matches the default 'teacher123' (e.g. after an accidental
+        reset-password call). Remove this action once confirmed fixed.
+        """
+        teacher_ids = request.data.get("teacher_ids", [])
+        fixed = []
+        for t in self.get_queryset().filter(teacher_id__in=teacher_ids):
+            u = t.user
+            if not u.check_password("teacher123"):
+                u.set_password("teacher123")
+                u.save(update_fields=["password"])
+                fixed.append(t.teacher_id)
+        return Response({"fixed": fixed})
