@@ -51,19 +51,26 @@ class LoginView(APIView):
         normalized_identifier = str(identifier).strip()
         username = normalized_identifier
 
-        if not User.objects.filter(username__iexact=normalized_identifier).exists():
+        # Resolve the identifier to the EXACT stored username casing,
+        # regardless of which lookup path matches (direct username,
+        # student admission number, or teacher_id). Previously, a
+        # case-insensitive match on username short-circuited before
+        # correcting the casing, so e.g. "T-BBDCAD" typed in uppercase
+        # would fail authenticate() against a stored "t-bbdcad".
+        user_match = User.objects.filter(username__iexact=normalized_identifier).first()
+
+        if user_match:
+            username = user_match.username
+        else:
             try:
                 student = Student.objects.get(admission_number__iexact=normalized_identifier)
                 username = student.user.username
             except Student.DoesNotExist:
-                pass
-
-            if username == normalized_identifier:
                 try:
                     teacher = Teacher.objects.get(teacher_id__iexact=normalized_identifier)
                     username = teacher.user.username
                 except Teacher.DoesNotExist:
-                    pass
+                    pass  # fall through; authenticate() will simply fail
 
         user = authenticate(request=request, username=username, password=password)
 
