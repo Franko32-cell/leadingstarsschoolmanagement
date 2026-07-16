@@ -29,6 +29,7 @@ const Admissions = lazy(() => import("./pages/Admissions"));
 const Subjects = lazy(() => import("./pages/Subjects"));
 const Reports = lazy(() => import("./pages/Reports"));
 const AdminApprovals = lazy(() => import("./pages/AdminApprovals"));
+const AdminSettings = lazy(() => import("./pages/admin/AdminSettings"));
 const StudentPortal = lazy(() => import("./pages/student/StudentPortal"));
 const TeacherPortal = lazy(() => import("./pages/teacher/TeacherPortal"));
 
@@ -106,6 +107,7 @@ function App() {
               <Route path="accounts" element={<Accounts />} />
               <Route path="reports" element={<Reports />} />
               <Route path="admin-approvals" element={<AdminApprovals />} />
+              <Route path="settings" element={<AdminSettings />} />
             </Route>
 
             {/* Catch-all */}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { getUser, logout } from "../services/auth";
 import API from "../services/api";
 
@@ -101,7 +102,7 @@ const MenuItem = ({ icon, label, onClick, danger }) => (
   </button>
 );
 
-const UserMenu = ({ user }) => (
+const UserMenu = ({ user, onSettingsClick }) => (
   <div className="absolute right-0 top-[calc(100%+8px)] w-56 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-dropdown">
     <div className="px-4 py-3.5 border-b border-slate-100 bg-slate-50/60">
       <p className="text-sm font-bold text-slate-800 leading-tight">{user?.username}</p>
@@ -109,7 +110,7 @@ const UserMenu = ({ user }) => (
     </div>
     <div className="py-1">
       <MenuItem icon={<ProfileIcon />} label="Profile" />
-      <MenuItem icon={<SettingsIcon />} label="Settings" />
+      <MenuItem icon={<SettingsIcon />} label="Settings" onClick={onSettingsClick} />
     </div>
     <div className="border-t border-slate-100 py-1">
       <MenuItem icon={<SignOutIcon />} label="Sign out" danger onClick={logout} />
@@ -119,6 +120,7 @@ const UserMenu = ({ user }) => (
 
 // ── Topbar ─────────────────────────────────────────────────────────────────────
 const Topbar = ({ onMenuToggle, sidebarOpen }) => {
+  const navigate = useNavigate();
   const user = getUser();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [announcements, setAnnouncements] = useState([]);
@@ -242,7 +244,15 @@ const Topbar = ({ onMenuToggle, sidebarOpen }) => {
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
           </button>
-          {dropdownOpen && <UserMenu user={user} />}
+          {dropdownOpen && (
+            <UserMenu
+              user={user}
+              onSettingsClick={() => {
+                setDropdownOpen(false);
+                navigate("/admin/settings");
+              }}
+            />
+          )}
         </div>
 
       </div>

@@ -33,6 +33,7 @@ from api.views.accounts_view import (
     DefaultersListView,
 )
 from api.views.active_users_view import ActiveUsersView
+from api.views.audit_view import AuditLogListView, AuditLogExportCSVView
 
 # --- Router Setup ---
 router = DefaultRouter()
@@ -78,6 +79,8 @@ urlpatterns = [
     path("accounts/collection/", FeeCollectionReportView.as_view(), name="fee-collection"),
     path("accounts/defaulters/", DefaultersListView.as_view(), name="fee-defaulters"),
     path("accounts/active-users/", ActiveUsersView.as_view(), name="active-users"),
+    path("audit-logs/", AuditLogListView.as_view(), name="audit-logs"),
+    path("audit-logs/export/", AuditLogExportCSVView.as_view(), name="audit-logs-export"),
 
     # 6. Router-generated URLs
     path("", include(router.urls)),

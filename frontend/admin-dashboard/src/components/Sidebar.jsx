@@ -74,6 +74,11 @@ const NAV_SECTIONS = [
         icon: FaUserShield,
         badgeKey: "approvals",
       },
+      {
+        name: "Settings",
+        path: "/admin/settings",
+        icon: FaDesktop,
+      },
     ],
   },
 ];
