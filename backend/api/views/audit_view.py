@@ -11,14 +11,13 @@ from rest_framework.response import Response
 from apps.audit.models import AuditLog
 from api.serializers.audit_serializer import AuditLogSerializer
 
-# Reuses your existing role-based permission if present. See README for the
-# one-time addition needed in api/permissions/role_permissions.py if
-# IsSuperAdminOrAdmin doesn't exist yet - falls back to IsAdminUser so this
-# file works standalone in the meantime rather than crashing on import.
+# Reuses your existing role-based permission (request.user.role == "admin").
+# Falls back to DRF's IsAdminUser only if role_permissions.py can't be
+# imported for some reason, so this file never hard-crashes on import.
 try:
-    from api.permissions.role_permissions import IsSuperAdminOrAdmin
-except ImportError:  # pragma: no cover - fallback until wired up, see README
-    IsSuperAdminOrAdmin = permissions.IsAdminUser
+    from api.permissions.role_permissions import IsAdmin
+except ImportError:  # pragma: no cover - fallback, should not trigger in practice
+    IsAdmin = permissions.IsAdminUser
 
 
 class AuditLogPagination(PageNumberPagination):
@@ -62,7 +61,7 @@ class AuditLogListView(generics.ListAPIView):
 
     queryset = AuditLog.objects.all()
     serializer_class = AuditLogSerializer
-    permission_classes = [permissions.IsAuthenticated, IsSuperAdminOrAdmin]
+    permission_classes = [permissions.IsAuthenticated, IsAdmin]
     pagination_class = AuditLogPagination
     filter_backends = [django_filters.rest_framework.DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = AuditLogFilter
@@ -80,7 +79,7 @@ class AuditLogExportCSVView(APIView):
     for the "Export" button, not the paginated table).
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsSuperAdminOrAdmin]
+    permission_classes = [permissions.IsAuthenticated, IsAdmin]
 
     def get(self, request):
         filtered = AuditLogFilter(

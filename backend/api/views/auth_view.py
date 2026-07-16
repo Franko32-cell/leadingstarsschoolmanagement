@@ -15,6 +15,14 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.students.models import Student
 from apps.teachers.models import Teacher
 
+# ── Audit logging ────────────────────────────────────────────────────────
+# Manual JWT auth (authenticate() + RefreshToken.for_user()) never fires
+# Django's built-in user_logged_in/user_logged_out/user_login_failed
+# signals, so apps/audit/signals.py never triggers here. We log explicitly
+# at the exact points that matter instead.
+from apps.audit.models import AuditLog
+from apps.audit.services import log_action
+
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
@@ -81,12 +89,28 @@ class LoginView(APIView):
                 normalized_identifier,
                 ip,
             )
+            log_action(
+                request=request,
+                action=AuditLog.Action.LOGIN_FAILED,
+                module=AuditLog.Module.AUTH,
+                status=AuditLog.Status.FAILED,
+                resource_repr=f"Failed login attempt: {normalized_identifier}",
+                description="Invalid credentials",
+            )
             return Response(
                 {"error": "Invalid credentials"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         if user.role == "admin" and not user.is_approved:
+            log_action(
+                request=request,
+                user=user,
+                action=AuditLog.Action.LOGIN_FAILED,
+                module=AuditLog.Module.AUTH,
+                status=AuditLog.Status.FAILED,
+                resource_repr=f"Login blocked (pending approval): {user.username}",
+            )
             return Response(
                 {
                     "error":   "pending_approval",
@@ -96,6 +120,14 @@ class LoginView(APIView):
             )
 
         if not user.is_active:
+            log_action(
+                request=request,
+                user=user,
+                action=AuditLog.Action.LOGIN_FAILED,
+                module=AuditLog.Module.AUTH,
+                status=AuditLog.Status.FAILED,
+                resource_repr=f"Login blocked (account disabled): {user.username}",
+            )
             return Response(
                 {"error": "Account is disabled"},
                 status=status.HTTP_403_FORBIDDEN,
@@ -103,6 +135,14 @@ class LoginView(APIView):
 
         # ← update last_login so active user tracking works
         update_last_login(None, user)
+
+        log_action(
+            request=request,
+            user=user,
+            action=AuditLog.Action.LOGIN,
+            module=AuditLog.Module.AUTH,
+            resource_repr=f"Login: {user.username} ({user.role})",
+        )
 
         refresh = RefreshToken.for_user(user)
         profile = {}
@@ -189,6 +229,14 @@ class RegisterView(APIView):
         )
 
         logger.info(f"New admin registration pending approval: {username}")
+        log_action(
+            request=request,
+            action=AuditLog.Action.CREATE,
+            module=AuditLog.Module.ACCOUNTS,
+            resource_type="User",
+            resource_id=user.id,
+            resource_repr=f"Admin registration (pending approval): {username}",
+        )
 
         return Response({
             "message": "Account created. An existing administrator must approve your account before you can log in.",
@@ -282,6 +330,15 @@ class ChangePasswordView(APIView):
         user.save()
 
         logger.info(f"Password changed for user: {user.username}")
+        log_action(
+            request=request,
+            user=user,
+            action=AuditLog.Action.PASSWORD_RESET,
+            module=AuditLog.Module.ACCOUNTS,
+            resource_type="User",
+            resource_id=user.id,
+            resource_repr=f"Password changed: {user.username}",
+        )
 
         return Response({"detail": "Password updated successfully."})
 
@@ -327,6 +384,16 @@ class AdminApprovalViewSet(viewsets.ViewSet):
         user.save(update_fields=["is_approved", "is_active"])
 
         logger.info(f"Admin {user.username} approved by {request.user.username}")
+        log_action(
+            request=request,
+            action=AuditLog.Action.USER_ACTIVATED,
+            module=AuditLog.Module.ACCOUNTS,
+            resource_type="User",
+            resource_id=user.id,
+            resource_repr=f"Admin approved: {user.username}",
+            previous_value={"is_approved": False, "is_active": False},
+            new_value={"is_approved": True, "is_active": True},
+        )
 
         return Response({
             "message": f"{user.username} has been approved and can now log in.",
@@ -344,8 +411,17 @@ class AdminApprovalViewSet(viewsets.ViewSet):
             return Response({"error": "You cannot reject yourself."}, status=status.HTTP_400_BAD_REQUEST)
 
         username = user.username
+        user_id = user.id
         user.delete()
 
         logger.info(f"Admin account {username} rejected and deleted by {request.user.username}")
+        log_action(
+            request=request,
+            action=AuditLog.Action.DELETE,
+            module=AuditLog.Module.ACCOUNTS,
+            resource_type="User",
+            resource_id=user_id,
+            resource_repr=f"Admin registration rejected & deleted: {username}",
+        )
 
         return Response({"message": f"{username}'s account has been rejected and removed."})
