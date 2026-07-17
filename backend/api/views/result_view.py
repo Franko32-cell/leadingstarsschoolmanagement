@@ -19,6 +19,10 @@ from apps.students.models import Student
 from api.serializers.result_serializer import ResultSerializer
 from .grades import get_grade_and_remark, get_thresholds
 
+# ── Audit logging ────────────────────────────────────────────────────────
+from apps.audit.models import AuditLog
+from apps.audit.services import log_action
+
 logger = logging.getLogger(__name__)
 
 
@@ -116,11 +120,31 @@ class ResultViewSet(ModelViewSet):
         recompute_subject_positions(
             instance.subject_id, instance.term, instance.school_class_id, instance.year
         )
+        log_action(
+            request=self.request,
+            action=AuditLog.Action.RESULT_UPLOAD,
+            module=AuditLog.Module.RESULTS,
+            resource_type="Result",
+            resource_id=instance.id,
+            resource_repr=f"Result: {instance.student} — {instance.subject} ({instance.term})",
+            new_value={"score": instance.score},
+        )
 
     def perform_update(self, serializer):
+        previous_score = self.get_object().score
         instance = serializer.save()
         recompute_subject_positions(
             instance.subject_id, instance.term, instance.school_class_id, instance.year
+        )
+        log_action(
+            request=self.request,
+            action=AuditLog.Action.RESULT_UPLOAD,
+            module=AuditLog.Module.RESULTS,
+            resource_type="Result",
+            resource_id=instance.id,
+            resource_repr=f"Result updated: {instance.student} — {instance.subject} ({instance.term})",
+            previous_value={"score": previous_score},
+            new_value={"score": instance.score},
         )
 
     # ------------------------------------------------------------------
@@ -211,6 +235,16 @@ class ResultViewSet(ModelViewSet):
         }
         for subject_id, term, class_id, year in combos:
             recompute_subject_positions(subject_id, term, class_id, year)
+
+        log_action(
+            request=request,
+            action=AuditLog.Action.RESULT_UPLOAD,
+            module=AuditLog.Module.RESULTS,
+            resource_type="Result",
+            resource_repr=f"Bulk result upload ({len(records)} records)",
+            status=AuditLog.Status.SUCCESS if not errors else AuditLog.Status.FAILED,
+            new_value={"saved": len(saved), "errors": len(errors)},
+        )
 
         response_status = (
             status.HTTP_400_BAD_REQUEST  if not saved and errors else

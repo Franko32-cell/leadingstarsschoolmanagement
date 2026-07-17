@@ -12,6 +12,10 @@ from api.serializers.admission_serializer import AdmissionSerializer
 from apps.students.models import Student
 from apps.classes.models import SchoolClass
 
+# ── Audit logging ────────────────────────────────────────────────────────
+from apps.audit.models import AuditLog
+from apps.audit.services import log_action
+
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
@@ -35,6 +39,15 @@ class AdmissionViewSet(ModelViewSet):
             logger.info(f"[ADMISSION CREATE] Photo URL: {instance.photo.url if instance.photo else 'none'}")
         except Exception as e:
             logger.info(f"[ADMISSION CREATE] Photo URL error: {e}")
+
+        log_action(
+            request=self.request,
+            action=AuditLog.Action.CREATE,
+            module=AuditLog.Module.ADMISSIONS,
+            resource_type="Admission",
+            resource_id=instance.id,
+            resource_repr=f"Admission application: {instance.student_name}",
+        )
 
     # ── Helpers ───────────────────────────────────────────────
 
@@ -77,8 +90,20 @@ class AdmissionViewSet(ModelViewSet):
     # ── Write hooks ───────────────────────────────────────────
 
     def perform_update(self, serializer):
+        previous_status = self.get_object().status
         admission = serializer.save()
         logger.info(f"Admission updated: id={admission.id} status={admission.status}")
+
+        log_action(
+            request=self.request,
+            action=AuditLog.Action.UPDATE,
+            module=AuditLog.Module.ADMISSIONS,
+            resource_type="Admission",
+            resource_id=admission.id,
+            resource_repr=f"Admission: {admission.student_name}",
+            previous_value={"status": previous_status},
+            new_value={"status": admission.status},
+        )
 
         if admission.status != "approved":
             return
@@ -127,6 +152,24 @@ class AdmissionViewSet(ModelViewSet):
 
             logger.info(f"Student created: {student.student_name} id={student_id} photo={photo_value}")
 
+            log_action(
+                request=self.request,
+                action=AuditLog.Action.CREATE,
+                module=AuditLog.Module.ADMISSIONS,
+                resource_type="Student",
+                resource_id=student.id,
+                resource_repr=f"Student created from admission: {student.student_name} ({student_id})",
+            )
+
         except Exception as exc:
             logger.error(f"Student creation failed: {exc}")
+            log_action(
+                request=self.request,
+                action=AuditLog.Action.CREATE,
+                module=AuditLog.Module.ADMISSIONS,
+                status=AuditLog.Status.FAILED,
+                resource_type="Student",
+                resource_repr=f"Student creation failed for admission: {admission.student_name}",
+                description=str(exc),
+            )
             raise

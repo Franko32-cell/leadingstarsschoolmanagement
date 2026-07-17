@@ -19,6 +19,10 @@ from api.serializers.fee_serializer import FeeSerializer
 from apps.fees.services.termii import TermiiSMSService, TermiiSMSError
 from apps.fees.services.templates import fee_payment_received
 
+# ── Audit logging ────────────────────────────────────────────────────────
+from apps.audit.models import AuditLog
+from apps.audit.services import log_action
+
 logger = logging.getLogger(__name__)
 
 
@@ -95,6 +99,7 @@ def paystack_webhook(request):
         amount = fee.balance
 
     # ── Record payment ────────────────────────────────────────────────────────
+    old_balance = fee.balance
     fee.paid += amount
     fee.save()
 
@@ -103,6 +108,18 @@ def paystack_webhook(request):
         amount      = amount,
         note        = f"Paystack webhook ref: {reference}",
         recorded_by = None,
+    )
+
+    log_action(
+        request=request,
+        action=AuditLog.Action.PAYMENT_PROCESSED,
+        module=AuditLog.Module.FEES,
+        resource_type="PaymentTransaction",
+        resource_id=txn.id,
+        resource_repr=f"Payment: {fee.student.full_name} — {fee.get_term_display()} (Paystack)",
+        previous_value={"balance": str(old_balance)},
+        new_value={"balance": str(fee.balance), "amount_paid": str(amount)},
+        description=f"Paystack webhook ref: {reference}",
     )
 
     # ── Send SMS ──────────────────────────────────────────────────────────────
@@ -214,6 +231,7 @@ class FeeViewSet(ModelViewSet):
                 )
                 return Response(FeeSerializer(fee).data)
 
+        old_balance = fee.balance
         fee.paid += amount
         fee.save()
 
@@ -222,6 +240,18 @@ class FeeViewSet(ModelViewSet):
             amount      = amount,
             note        = note,
             recorded_by = request.user if request.user.is_authenticated else None,
+        )
+
+        log_action(
+            request=request,
+            action=AuditLog.Action.PAYMENT_PROCESSED,
+            module=AuditLog.Module.FEES,
+            resource_type="PaymentTransaction",
+            resource_id=txn.id,
+            resource_repr=f"Payment: {fee.student.full_name} — {fee.get_term_display()}",
+            previous_value={"balance": str(old_balance)},
+            new_value={"balance": str(fee.balance), "amount_paid": str(amount)},
+            description=note or "",
         )
 
         # ── Send SMS ──────────────────────────────────────────────────────────
@@ -324,6 +354,16 @@ class FeeViewSet(ModelViewSet):
             fee.arrears       = to_decimal(request.data.get("arrears"),       fee.arrears)
             fee.save()
 
+        log_action(
+            request=request,
+            action=AuditLog.Action.CREATE if is_new else AuditLog.Action.FEE_UPDATE,
+            module=AuditLog.Module.FEES,
+            resource_type="Fee",
+            resource_id=fee.id,
+            resource_repr=f"Fee: {student.full_name} — {fee.get_term_display()}",
+            new_value={"amount": str(fee.amount), "arrears": str(fee.arrears)},
+        )
+
         return Response(
             FeeSerializer(fee).data,
             status=status.HTTP_201_CREATED if is_new else status.HTTP_200_OK,
@@ -388,6 +428,16 @@ class FeeViewSet(ModelViewSet):
             else:
                 created += 1
 
+        log_action(
+            request=request,
+            action=AuditLog.Action.FEE_UPDATE,
+            module=AuditLog.Module.FEES,
+            resource_type="Fee",
+            resource_repr=f"Bulk fee assignment: class {school_class}, {term}",
+            new_value={"amount": str(amount), "created": created, "updated": updated},
+            description=f"{created} created, {updated} updated",
+        )
+
         return Response({"created": created, "updated": updated, "total": created + updated})
 
     # ── Add arrears to a specific student fee record ──────────────────────────
@@ -417,8 +467,21 @@ class FeeViewSet(ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        old_arrears = fee.arrears
         fee.arrears = arrears
         fee.save()
+
+        log_action(
+            request=request,
+            action=AuditLog.Action.FEE_UPDATE,
+            module=AuditLog.Module.FEES,
+            resource_type="Fee",
+            resource_id=fee.id,
+            resource_repr=f"Arrears updated: {fee.student.full_name} — {fee.get_term_display()}",
+            previous_value={"arrears": str(old_arrears)},
+            new_value={"arrears": str(arrears)},
+        )
+
         return Response(FeeSerializer(fee).data)
 
     # ── Summary stats for a class + term ──────────────────────────────────────
@@ -554,6 +617,15 @@ class FeeViewSet(ModelViewSet):
             created_at__year=year,
         ).delete()
 
+        log_action(
+            request=request,
+            action=AuditLog.Action.DELETE,
+            module=AuditLog.Module.FEES,
+            resource_type="Fee",
+            resource_repr=f"Bulk delete: class {school_class}, {term}, {year}",
+            description=f"{deleted_count} fee record(s) deleted",
+        )
+
         return Response(
             {"detail": f"{deleted_count} fee record(s) deleted successfully."},
             status=status.HTTP_200_OK,
@@ -600,7 +672,16 @@ class FeeViewSet(ModelViewSet):
                     {"error": "Fee not found or student is already assigned to a class."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
+            student_name = fee.student.full_name
             fee.delete()
+            log_action(
+                request=request,
+                action=AuditLog.Action.DELETE,
+                module=AuditLog.Module.FEES,
+                resource_type="Fee",
+                resource_id=fee_id,
+                resource_repr=f"Unassigned fee deleted: {student_name}",
+            )
             return Response(
                 {"detail": f"Fee {fee_id} deleted successfully."},
                 status=status.HTTP_200_OK,
@@ -609,6 +690,15 @@ class FeeViewSet(ModelViewSet):
         deleted_count, _ = Fee.objects.filter(
             student__school_class__isnull=True
         ).delete()
+
+        log_action(
+            request=request,
+            action=AuditLog.Action.DELETE,
+            module=AuditLog.Module.FEES,
+            resource_type="Fee",
+            resource_repr="Bulk delete: unassigned-student fees",
+            description=f"{deleted_count} fee record(s) deleted",
+        )
 
         return Response(
             {"detail": f"{deleted_count} fee record(s) deleted for unassigned students."},
