@@ -9,6 +9,8 @@ class TeacherSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(write_only=True)
     last_name = serializers.CharField(write_only=True)
     teacher_name = serializers.SerializerMethodField(read_only=True)
+    email = serializers.SerializerMethodField(read_only=True)
+    account_status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Teacher
@@ -18,6 +20,8 @@ class TeacherSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "teacher_name",
+            "email",
+            "account_status",
             "subject",
             "school_class",
             "hire_date"
@@ -26,6 +30,9 @@ class TeacherSerializer(serializers.ModelSerializer):
 
     def get_teacher_name(self, obj):
         return f"{obj.user.first_name} {obj.user.last_name}"
+
+    def get_email(self, obj):
+        return obj.user.email if obj.user else None
 
     def create(self, validated_data):
         first_name = validated_data.pop("first_name")
@@ -53,3 +60,6 @@ class TeacherSerializer(serializers.ModelSerializer):
             **validated_data
         )
         return teacher
+
+    def get_account_status(self, obj):
+        return obj.user.account_status if obj.user else None

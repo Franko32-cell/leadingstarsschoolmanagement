@@ -10,12 +10,13 @@ class StudentSerializer(serializers.ModelSerializer):
     class_name   = serializers.CharField(
         source="school_class.name", read_only=True, allow_null=True
     )
+    account_status = serializers.SerializerMethodField()
     photo_url    = serializers.SerializerMethodField()
 
     class Meta:
         model  = Student
         fields = [
-            "id", "username", "email",
+            "id", "username", "email", "account_status",
             "admission_number", "admission_date",
             "student_name", "first_name", "last_name",
             "school_class", "class_name",
@@ -61,6 +62,10 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def get_student_name(self, obj):
         return obj.full_name
+
+    def get_account_status(self, obj):
+        user = self._get_user(obj)
+        return user.account_status if user else None
 
     def get_photo_url(self, obj):
         if not obj.photo:

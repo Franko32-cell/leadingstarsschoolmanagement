@@ -8,6 +8,27 @@ import {
   FaCog,
 } from "react-icons/fa";
 import AuditLogs from "./AuditLogs";
+import PersonAdminTable from "../../components/common/PersonAdminTable";
+import {
+  getStudents,
+  activateStudent,
+  deactivateStudent,
+  suspendStudent,
+  reinstateStudent,
+  archiveStudent,
+  restoreStudent,
+  resetStudentPassword,
+} from "../../services/studentService";
+import {
+  getTeachers,
+  activateTeacher,
+  deactivateTeacher,
+  suspendTeacher,
+  reinstateTeacher,
+  archiveTeacher,
+  restoreTeacher,
+  resetTeacherPassword,
+} from "../../services/teacherService";
 
 /**
  * Central shell for the School Administration & Audit Center.
@@ -36,6 +57,20 @@ const ComingSoon = ({ label }) => (
     </p>
   </div>
 );
+
+const STUDENT_ROW_CONFIG = {
+  getId: (student) => student.id,
+  getName: (student) => student.student_name || `${student.first_name} ${student.last_name}`,
+  getSubtitle: (student) => student.admission_number || student.email,
+  getStatus: (student) => student.account_status,
+};
+
+const TEACHER_ROW_CONFIG = {
+  getId: (teacher) => teacher.id,
+  getName: (teacher) => teacher.teacher_name || `${teacher.first_name} ${teacher.last_name}`,
+  getSubtitle: (teacher) => teacher.teacher_id || teacher.email,
+  getStatus: (teacher) => teacher.account_status,
+};
 
 const AdminSettings = () => {
   const [activeTab, setActiveTab] = useState("audit");
@@ -81,7 +116,97 @@ const AdminSettings = () => {
 
       <div className="mt-6 pb-8">
         {activeTab === "audit" && <AuditLogs />}
-        {activeTab !== "audit" && (
+        {activeTab === "students" && (
+          <PersonAdminTable
+            title="Student Management"
+            subtitle="students in the school system"
+            fetchList={getStudents}
+            actions={{
+              activate: activateStudent,
+              deactivate: deactivateStudent,
+              suspend: suspendStudent,
+              reinstate: reinstateStudent,
+              archive: archiveStudent,
+              restore: restoreStudent,
+              resetPassword: resetStudentPassword,
+            }}
+            rowConfig={STUDENT_ROW_CONFIG}
+            extraColumns={[
+              {
+                key: "admission",
+                label: "Admission #",
+                render: (student) => student.admission_number || "—",
+              },
+              {
+                key: "class",
+                label: "Class",
+                render: (student) => student.class_name || "—",
+              },
+            ]}
+            renderProfile={(student) => (
+              <div className="space-y-4 text-sm text-slate-600">
+                <div>
+                  <p className="text-slate-500 font-semibold">Admission Number</p>
+                  <p className="font-semibold text-slate-900">{student.admission_number || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500 font-semibold">Class</p>
+                  <p className="font-semibold text-slate-900">{student.class_name || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500 font-semibold">Email</p>
+                  <p className="font-semibold text-slate-900">{student.email || "—"}</p>
+                </div>
+              </div>
+            )}
+          />
+        )}
+        {activeTab === "teachers" && (
+          <PersonAdminTable
+            title="Teacher Management"
+            subtitle="teachers and faculty accounts"
+            fetchList={getTeachers}
+            actions={{
+              activate: activateTeacher,
+              deactivate: deactivateTeacher,
+              suspend: suspendTeacher,
+              reinstate: reinstateTeacher,
+              archive: archiveTeacher,
+              restore: restoreTeacher,
+              resetPassword: resetTeacherPassword,
+            }}
+            rowConfig={TEACHER_ROW_CONFIG}
+            extraColumns={[
+              {
+                key: "teacherId",
+                label: "Teacher ID",
+                render: (teacher) => teacher.teacher_id || "—",
+              },
+              {
+                key: "subject",
+                label: "Subject",
+                render: (teacher) => teacher.subject?.name || "—",
+              },
+            ]}
+            renderProfile={(teacher) => (
+              <div className="space-y-4 text-sm text-slate-600">
+                <div>
+                  <p className="text-slate-500 font-semibold">Teacher ID</p>
+                  <p className="font-semibold text-slate-900">{teacher.teacher_id || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500 font-semibold">Subject</p>
+                  <p className="font-semibold text-slate-900">{teacher.subject?.name || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500 font-semibold">Email</p>
+                  <p className="font-semibold text-slate-900">{teacher.email || "—"}</p>
+                </div>
+              </div>
+            )}
+          />
+        )}
+        {activeTab !== "audit" && activeTab !== "students" && activeTab !== "teachers" && (
           <ComingSoon label={TABS.find((t) => t.key === activeTab)?.label} />
         )}
       </div>
