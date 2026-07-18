@@ -9,7 +9,7 @@ import {
   archiveStudent,
   restoreStudent,
   resetStudentPassword,
-} from "../../services/StudentAdminService";
+} from "../../services/studentAdminService";
 
 const StudentsAdmin = () => (
   <PersonAdminTable

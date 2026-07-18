@@ -1,4 +1,4 @@
-import PersonAdminTable from "../../components/admin/PersonAdminTable";
+import PersonAdminTable from "../../components/common/PersonAdminTable";
 import {
   getTeachersAdmin,
   activateTeacher,
