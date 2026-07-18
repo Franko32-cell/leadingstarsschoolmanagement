@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from apps.students.models import Student
+from apps.subjects.models import Subject
 
 
 class StudentSerializer(serializers.ModelSerializer):
@@ -98,3 +99,22 @@ class StudentSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         data["photo"] = self.get_photo_url(instance)
         return data
+
+
+class SubjectSerializer(serializers.ModelSerializer):
+    school_class_name = serializers.CharField(
+        source="school_class.name",
+        read_only=True,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = Subject
+        fields = [
+            "id",
+            "name",
+            "school_class",
+            "school_class_name",
+            "created_at",
+        ]
+        read_only_fields = ["created_at"]
