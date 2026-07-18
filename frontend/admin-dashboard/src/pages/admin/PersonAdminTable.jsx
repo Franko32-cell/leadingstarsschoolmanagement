@@ -181,6 +181,9 @@ const RowMenu = ({ status, onAction }) => {
 const Drawer = ({ open, onClose, person, rowConfig, renderProfile, onAction }) => {
   if (!open || !person) return null;
   const status = rowConfig.getStatus(person);
+  // Optional: rowConfig.getPhoto(person) -> URL string. Falls back to the
+  // generic icon avatar if not provided or the image fails to load.
+  const photo = rowConfig.getPhoto ? rowConfig.getPhoto(person) : null;
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
@@ -188,8 +191,17 @@ const Drawer = ({ open, onClose, person, rowConfig, renderProfile, onAction }) =
       <div className="relative w-full max-w-md bg-white h-full shadow-2xl overflow-y-auto animate-fade-in-up">
         <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-5 flex items-center justify-between z-10">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white">
-              <FaUserCircle className="text-xl" />
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white overflow-hidden flex-shrink-0">
+              {photo ? (
+                <img
+                  src={photo}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                />
+              ) : (
+                <FaUserCircle className="text-xl" />
+              )}
             </div>
             <div>
               <p className="font-black text-slate-900">{rowConfig.getName(person)}</p>
@@ -237,7 +249,7 @@ const PersonAdminTable = ({
   subtitle,
   fetchList,
   actions,           // { activate, deactivate, suspend, reinstate, archive, restore, resetPassword }
-  rowConfig,         // { getId, getName, getSubtitle, getStatus }
+  rowConfig,         // { getId, getName, getSubtitle, getStatus, getPhoto? }
   extraColumns = [], // [{ key, label, render(row) }]
   renderProfile,     // (row) => JSX for the drawer body
   searchPlaceholder = "Search…",

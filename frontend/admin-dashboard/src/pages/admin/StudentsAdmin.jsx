@@ -1,4 +1,5 @@
-import PersonAdminTable from "../../components/admin/PersonAdminTable";
+import PersonAdminTable from "../../components/common/PersonAdminTable";
+import StudentProfile from "./StudentProfile";
 import {
   getStudentsAdmin,
   activateStudent,
@@ -8,18 +9,14 @@ import {
   archiveStudent,
   restoreStudent,
   resetStudentPassword,
-} from "../../services/studentAdminService";
-
-const fmtDate = (iso) =>
-  iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Never";
+} from "../../services/StudentAdminService";
 
 const StudentsAdmin = () => (
   <PersonAdminTable
     title="Students"
-    subtitle="Manage student accounts, status, and access"
+    subtitle="students in the school system"
     searchPlaceholder="Search by name, admission number, or class…"
-    fetchFn={getStudentsAdmin}
-    getLabel={(s) => `${s.student_name || s.username} (${s.admission_number})`}
+    fetchList={getStudentsAdmin}
     actions={{
       activate: activateStudent,
       deactivate: deactivateStudent,
@@ -27,56 +24,28 @@ const StudentsAdmin = () => (
       reinstate: reinstateStudent,
       archive: archiveStudent,
       restore: restoreStudent,
-      reset_password: resetStudentPassword,
+      resetPassword: resetStudentPassword,
     }}
-    columns={[
-      { key: "name", label: "Name", render: (s) => (
-        <div>
-          <p className="font-bold text-slate-800">{s.student_name || s.username}</p>
-          <p className="text-xs text-slate-400">{s.admission_number}</p>
-        </div>
-      )},
-      { key: "class", label: "Class", render: (s) => s.class_name || "—" },
-      { key: "parent", label: "Parent / Guardian", render: (s) => s.parent_name || "—" },
-      { key: "last_login", label: "Last Login", render: (s) => fmtDate(s.last_login) },
-    ]}
-    drawerSections={(s) => [
+    rowConfig={{
+      getId: (s) => s.id,
+      getName: (s) => s.student_name || s.username,
+      getSubtitle: (s) => s.admission_number,
+      getStatus: (s) => s.account_status,
+      getPhoto: (s) => s.photo_url,
+    }}
+    extraColumns={[
       {
-        title: "Personal Information",
-        fields: [
-          ["Full name", s.student_name || s.username],
-          ["Admission number", s.admission_number],
-          ["Username", s.username],
-          ["Email", s.email || "—"],
-          ["Gender", s.gender || "—"],
-          ["Date of birth", s.date_of_birth || "—"],
-          ["Phone", s.phone || "—"],
-          ["Nationality", s.nationality || "—"],
-        ],
+        key: "class",
+        label: "Class",
+        render: (s) => s.class_name || "—",
       },
       {
-        title: "Academic",
-        fields: [
-          ["Class", s.class_name || "Unassigned"],
-          ["Admission date", s.admission_date || "—"],
-          ["Previous school", s.previous_school || "—"],
-        ],
-      },
-      {
-        title: "Parent / Guardian",
-        fields: [
-          ["Name", s.parent_name || "—"],
-          ["Phone", s.parent_phone || "—"],
-        ],
-      },
-      {
-        title: "Account",
-        fields: [
-          ["Account created", fmtDate(s.date_joined)],
-          ["Last login", fmtDate(s.last_login)],
-        ],
+        key: "parent",
+        label: "Parent / Guardian",
+        render: (s) => s.parent_name || "—",
       },
     ]}
+    renderProfile={(student) => <StudentProfile student={student} />}
   />
 );
 

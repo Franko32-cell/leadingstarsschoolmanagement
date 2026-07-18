@@ -1,4 +1,4 @@
-import PersonAdminTable from "../../components/admin/PersonAdminTable";
+import PersonAdminTable from "../../components/common/PersonAdminTable";
 import {
   getTeachersAdmin,
   activateTeacher,
@@ -8,7 +8,7 @@ import {
   archiveTeacher,
   restoreTeacher,
   resetTeacherPassword,
-} from "../../services/teacherAdminService";
+} from "../../services/TeacherAdminService";
 
 const fmtDate = (iso) =>
   iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Never";
