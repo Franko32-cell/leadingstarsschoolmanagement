@@ -1,4 +1,4 @@
-import PersonAdminTable from "../../components/common/PersonAdminTable";
+import PersonAdminTable from "../../components/admin/PersonAdminTable";
 import {
   getTeachersAdmin,
   activateTeacher,
@@ -8,18 +8,31 @@ import {
   archiveTeacher,
   restoreTeacher,
   resetTeacherPassword,
-} from "../../services/TeacherAdminService";
+} from "../../services/teacherAdminService";
 
 const fmtDate = (iso) =>
   iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Never";
 
+const Field = ({ label, value }) => (
+  <div>
+    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+    <p className="text-sm font-semibold text-slate-800 mt-0.5">{value || "—"}</p>
+  </div>
+);
+
+const Section = ({ title, children }) => (
+  <div>
+    <p className="text-xs font-black uppercase tracking-wide text-slate-400 mb-3">{title}</p>
+    <div className="grid grid-cols-2 gap-x-4 gap-y-3">{children}</div>
+  </div>
+);
+
 const TeachersAdmin = () => (
   <PersonAdminTable
     title="Teachers"
-    subtitle="Manage teacher accounts, assignments, and access"
+    subtitle="teachers and faculty accounts"
     searchPlaceholder="Search by name or teacher ID…"
-    fetchFn={getTeachersAdmin}
-    getLabel={(t) => `${t.teacher_name || t.username} (${t.teacher_id})`}
+    fetchList={getTeachersAdmin}
     actions={{
       activate: activateTeacher,
       deactivate: deactivateTeacher,
@@ -27,45 +40,51 @@ const TeachersAdmin = () => (
       reinstate: reinstateTeacher,
       archive: archiveTeacher,
       restore: restoreTeacher,
-      reset_password: resetTeacherPassword,
+      resetPassword: resetTeacherPassword,
     }}
-    columns={[
-      { key: "name", label: "Name", render: (t) => (
-        <div>
-          <p className="font-bold text-slate-800">{t.teacher_name || t.username}</p>
-          <p className="text-xs text-slate-400">{t.teacher_id}</p>
-        </div>
-      )},
-      { key: "subject", label: "Subject", render: (t) => t.subject_name || t.subject || "—" },
-      { key: "class", label: "Class", render: (t) => t.school_class_name || t.school_class || "—" },
-      { key: "last_login", label: "Last Login", render: (t) => fmtDate(t.last_login) },
-    ]}
-    drawerSections={(t) => [
+    rowConfig={{
+      getId: (t) => t.id,
+      getName: (t) => t.teacher_name || t.username,
+      getSubtitle: (t) => t.teacher_id,
+      getStatus: (t) => t.account_status,
+      getPhoto: (t) => t.photo_url,
+    }}
+    extraColumns={[
       {
-        title: "Personal Information",
-        fields: [
-          ["Full name", t.teacher_name || t.username],
-          ["Teacher ID", t.teacher_id],
-          ["Username", t.username],
-          ["Email", t.email || "—"],
-        ],
+        key: "subject",
+        label: "Subject",
+        render: (t) => t.subject_name || t.subject || "—",
       },
       {
-        title: "Assignments",
-        fields: [
-          ["Subject", t.subject_name || t.subject || "Unassigned"],
-          ["Class", t.school_class_name || t.school_class || "Unassigned"],
-          ["Hire date", t.hire_date || "—"],
-        ],
+        key: "class",
+        label: "Class",
+        render: (t) => t.school_class_name || t.school_class || "—",
       },
       {
-        title: "Account",
-        fields: [
-          ["Account created", fmtDate(t.date_joined)],
-          ["Last login", fmtDate(t.last_login)],
-        ],
+        key: "last_login",
+        label: "Last Login",
+        render: (t) => fmtDate(t.last_login),
       },
     ]}
+    renderProfile={(t) => (
+      <div className="space-y-6">
+        <Section title="Personal Information">
+          <Field label="Full name" value={t.teacher_name || t.username} />
+          <Field label="Teacher ID" value={t.teacher_id} />
+          <Field label="Username" value={t.username} />
+          <Field label="Email" value={t.email} />
+        </Section>
+        <Section title="Assignments">
+          <Field label="Subject" value={t.subject_name || t.subject || "Unassigned"} />
+          <Field label="Class" value={t.school_class_name || t.school_class || "Unassigned"} />
+          <Field label="Hire date" value={t.hire_date} />
+        </Section>
+        <Section title="Account">
+          <Field label="Account created" value={fmtDate(t.date_joined)} />
+          <Field label="Last login" value={fmtDate(t.last_login)} />
+        </Section>
+      </div>
+    )}
   />
 );
 
