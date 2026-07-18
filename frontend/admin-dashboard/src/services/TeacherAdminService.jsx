@@ -2,20 +2,51 @@ import API from "./api";
 
 /**
  * Admin-only account management actions for teachers. Mirrors
- * studentAdminService.jsx exactly — same endpoint shape on
- * /api/teachers/{id}/... . Kept separate from any existing
- * teacherService.jsx so current call sites are untouched.
+ * studentAdminService.js exactly — same endpoint shape on
+ * /api/teachers/{id}/... .
+ *
+ * NOTE: export names here must match the import in TeachersAdmin.jsx
+ * exactly (getTeachersAdmin, not getTeachers) — a mismatch here causes
+ * PersonAdminTable's fetchList(params) call to throw synchronously
+ * before any network request is ever sent.
  */
 
-export const getTeachersAdmin = (params = {}) =>
-  API.get("/teachers/", { params }).then((res) => res.data);
+export const getTeachersAdmin = async (params = {}) => {
+  const res = await API.get("teachers/", { params });
+  return res.data;
+};
 
-const post = (id, action) => API.post(`/teachers/${id}/${action}/`).then((res) => res.data);
+export const activateTeacher = async (id) => {
+  const res = await API.post(`teachers/${id}/activate/`);
+  return res.data;
+};
 
-export const activateTeacher   = (id) => post(id, "activate");
-export const deactivateTeacher = (id) => post(id, "deactivate");
-export const suspendTeacher    = (id) => post(id, "suspend");
-export const reinstateTeacher  = (id) => post(id, "reinstate");
-export const archiveTeacher    = (id) => post(id, "archive");
-export const restoreTeacher    = (id) => post(id, "restore");
-export const resetTeacherPassword = (id) => post(id, "reset-password");
+export const deactivateTeacher = async (id) => {
+  const res = await API.post(`teachers/${id}/deactivate/`);
+  return res.data;
+};
+
+export const suspendTeacher = async (id) => {
+  const res = await API.post(`teachers/${id}/suspend/`);
+  return res.data;
+};
+
+export const reinstateTeacher = async (id) => {
+  const res = await API.post(`teachers/${id}/reinstate/`);
+  return res.data;
+};
+
+export const archiveTeacher = async (id) => {
+  const res = await API.post(`teachers/${id}/archive/`);
+  return res.data;
+};
+
+export const restoreTeacher = async (id) => {
+  const res = await API.post(`teachers/${id}/restore/`);
+  return res.data;
+};
+
+export const resetTeacherPassword = async (id) => {
+  const res = await API.post(`teachers/${id}/reset-password/`);
+  return res.data;
+};
