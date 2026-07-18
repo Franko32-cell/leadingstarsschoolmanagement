@@ -1,51 +1,37 @@
-import { useState } from "react";
+import { Suspense, lazy, useCallback, useMemo, useState } from "react";
 import {
   FaHistory,
   FaUserGraduate,
   FaChalkboardTeacher,
+  FaMoneyBillWave,
   FaChartBar,
   FaBell,
   FaCog,
 } from "react-icons/fa";
-import AuditLogs from "./AuditLogs";
-import PersonAdminTable from "../../components/common/PersonAdminTable";
-import {
-  getStudents,
-  activateStudent,
-  deactivateStudent,
-  suspendStudent,
-  reinstateStudent,
-  archiveStudent,
-  restoreStudent,
-  resetStudentPassword,
-} from "../../services/studentService";
-import {
-  getTeachers,
-  activateTeacher,
-  deactivateTeacher,
-  suspendTeacher,
-  reinstateTeacher,
-  archiveTeacher,
-  restoreTeacher,
-  resetTeacherPassword,
-} from "../../services/teacherService";
+
+// Code-split each tab's module so the initial bundle only pays for
+// whichever tab is active first (Audit Logs by default).
+const AuditLogs = lazy(() => import("./AuditLogs"));
+const StudentsAdmin = lazy(() => import("./StudentsAdmin"));
+const TeachersAdmin = lazy(() => import("./TeachersAdmin"));
+const Fees = lazy(() => import("./Fees"));
 
 /**
  * Central shell for the School Administration & Audit Center.
  *
- * This is deliberately built as a tab container from day one so each
- * future module (Student Management, Teacher Management, Reports,
- * Notifications) is just another entry in TABS + its own component -
- * no restructuring needed later. Only "Audit Logs" is wired up so far;
- * the rest render a lightweight placeholder until built.
+ * Built as a tab container from day one so each future module is just
+ * another entry in TABS + its own component. Audit Logs, Students,
+ * Teachers, and Fees are wired up; Reports & Notifications remain
+ * "coming soon" placeholders until built.
  */
 
 const TABS = [
-  { key: "audit", label: "Audit Logs", icon: <FaHistory />, ready: true },
-  { key: "students", label: "Students", icon: <FaUserGraduate />, ready: false },
-  { key: "teachers", label: "Teachers", icon: <FaChalkboardTeacher />, ready: false },
-  { key: "reports", label: "Reports & Analytics", icon: <FaChartBar />, ready: false },
-  { key: "notifications", label: "Notifications", icon: <FaBell />, ready: false },
+  { key: "audit", label: "Audit Logs", icon: <FaHistory />, ready: true, Component: AuditLogs },
+  { key: "students", label: "Students", icon: <FaUserGraduate />, ready: true, Component: StudentsAdmin },
+  { key: "teachers", label: "Teachers", icon: <FaChalkboardTeacher />, ready: true, Component: TeachersAdmin },
+  { key: "fees", label: "Fees", icon: <FaMoneyBillWave />, ready: true, Component: Fees },
+  { key: "reports", label: "Reports & Analytics", icon: <FaChartBar />, ready: false, Component: null },
+  { key: "notifications", label: "Notifications", icon: <FaBell />, ready: false, Component: null },
 ];
 
 const ComingSoon = ({ label }) => (
@@ -58,22 +44,36 @@ const ComingSoon = ({ label }) => (
   </div>
 );
 
-const STUDENT_ROW_CONFIG = {
-  getId: (student) => student.id,
-  getName: (student) => student.student_name || `${student.first_name} ${student.last_name}`,
-  getSubtitle: (student) => student.admission_number || student.email,
-  getStatus: (student) => student.account_status,
-};
-
-const TEACHER_ROW_CONFIG = {
-  getId: (teacher) => teacher.id,
-  getName: (teacher) => teacher.teacher_name || `${teacher.first_name} ${teacher.last_name}`,
-  getSubtitle: (teacher) => teacher.teacher_id || teacher.email,
-  getStatus: (teacher) => teacher.account_status,
-};
+const TabPanelFallback = () => (
+  <div className="flex items-center justify-center py-24 text-slate-400 text-sm font-semibold">
+    Loading…
+  </div>
+);
 
 const AdminSettings = () => {
   const [activeTab, setActiveTab] = useState("audit");
+
+  const activeIndex = useMemo(
+    () => TABS.findIndex((t) => t.key === activeTab),
+    [activeTab]
+  );
+  const active = TABS[activeIndex];
+
+  // Arrow-key navigation between tabs, matching the WAI-ARIA tabs pattern.
+  const handleKeyDown = useCallback(
+    (e) => {
+      if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(e.key)) return;
+      e.preventDefault();
+      let nextIndex = activeIndex;
+      if (e.key === "ArrowRight") nextIndex = (activeIndex + 1) % TABS.length;
+      if (e.key === "ArrowLeft") nextIndex = (activeIndex - 1 + TABS.length) % TABS.length;
+      if (e.key === "Home") nextIndex = 0;
+      if (e.key === "End") nextIndex = TABS.length - 1;
+      setActiveTab(TABS[nextIndex].key);
+      document.getElementById(`admin-tab-${TABS[nextIndex].key}`)?.focus();
+    },
+    [activeIndex]
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30">
@@ -91,123 +91,54 @@ const AdminSettings = () => {
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-2 overflow-x-auto pb-1 border-b border-slate-200">
-          {TABS.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-bold rounded-t-xl transition-colors ${
-                activeTab === tab.key
-                  ? "text-indigo-600 border-b-2 border-indigo-600 bg-white"
-                  : "text-slate-400 hover:text-slate-600"
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-              {!tab.ready && (
-                <span className="ml-1 text-[9px] font-black uppercase bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded">
-                  soon
-                </span>
-              )}
-            </button>
-          ))}
+        <div
+          role="tablist"
+          aria-label="Admin Settings sections"
+          className="flex gap-2 overflow-x-auto pb-1 border-b border-slate-200"
+        >
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                id={`admin-tab-${tab.key}`}
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`admin-panel-${tab.key}`}
+                tabIndex={isActive ? 0 : -1}
+                onClick={() => setActiveTab(tab.key)}
+                onKeyDown={handleKeyDown}
+                className={`flex items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-bold rounded-t-xl transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 ${
+                  isActive
+                    ? "text-indigo-600 border-b-2 border-indigo-600 bg-white"
+                    : "text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                {tab.icon}
+                {tab.label}
+                {!tab.ready && (
+                  <span className="ml-1 text-[9px] font-black uppercase bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded">
+                    soon
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="mt-6 pb-8">
-        {activeTab === "audit" && <AuditLogs />}
-        {activeTab === "students" && (
-          <PersonAdminTable
-            title="Student Management"
-            subtitle="students in the school system"
-            fetchList={getStudents}
-            actions={{
-              activate: activateStudent,
-              deactivate: deactivateStudent,
-              suspend: suspendStudent,
-              reinstate: reinstateStudent,
-              archive: archiveStudent,
-              restore: restoreStudent,
-              resetPassword: resetStudentPassword,
-            }}
-            rowConfig={STUDENT_ROW_CONFIG}
-            extraColumns={[
-              {
-                key: "admission",
-                label: "Admission #",
-                render: (student) => student.admission_number || "—",
-              },
-              {
-                key: "class",
-                label: "Class",
-                render: (student) => student.class_name || "—",
-              },
-            ]}
-            renderProfile={(student) => (
-              <div className="space-y-4 text-sm text-slate-600">
-                <div>
-                  <p className="text-slate-500 font-semibold">Admission Number</p>
-                  <p className="font-semibold text-slate-900">{student.admission_number || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-slate-500 font-semibold">Class</p>
-                  <p className="font-semibold text-slate-900">{student.class_name || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-slate-500 font-semibold">Email</p>
-                  <p className="font-semibold text-slate-900">{student.email || "—"}</p>
-                </div>
-              </div>
-            )}
-          />
-        )}
-        {activeTab === "teachers" && (
-          <PersonAdminTable
-            title="Teacher Management"
-            subtitle="teachers and faculty accounts"
-            fetchList={getTeachers}
-            actions={{
-              activate: activateTeacher,
-              deactivate: deactivateTeacher,
-              suspend: suspendTeacher,
-              reinstate: reinstateTeacher,
-              archive: archiveTeacher,
-              restore: restoreTeacher,
-              resetPassword: resetTeacherPassword,
-            }}
-            rowConfig={TEACHER_ROW_CONFIG}
-            extraColumns={[
-              {
-                key: "teacherId",
-                label: "Teacher ID",
-                render: (teacher) => teacher.teacher_id || "—",
-              },
-              {
-                key: "subject",
-                label: "Subject",
-                render: (teacher) => teacher.subject?.name || "—",
-              },
-            ]}
-            renderProfile={(teacher) => (
-              <div className="space-y-4 text-sm text-slate-600">
-                <div>
-                  <p className="text-slate-500 font-semibold">Teacher ID</p>
-                  <p className="font-semibold text-slate-900">{teacher.teacher_id || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-slate-500 font-semibold">Subject</p>
-                  <p className="font-semibold text-slate-900">{teacher.subject?.name || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-slate-500 font-semibold">Email</p>
-                  <p className="font-semibold text-slate-900">{teacher.email || "—"}</p>
-                </div>
-              </div>
-            )}
-          />
-        )}
-        {activeTab !== "audit" && activeTab !== "students" && activeTab !== "teachers" && (
-          <ComingSoon label={TABS.find((t) => t.key === activeTab)?.label} />
+      <div
+        id={`admin-panel-${active.key}`}
+        role="tabpanel"
+        aria-labelledby={`admin-tab-${active.key}`}
+        className="mt-6 pb-8"
+      >
+        {active.ready && active.Component ? (
+          <Suspense fallback={<TabPanelFallback />}>
+            <active.Component />
+          </Suspense>
+        ) : (
+          <ComingSoon label={active.label} />
         )}
       </div>
     </div>
