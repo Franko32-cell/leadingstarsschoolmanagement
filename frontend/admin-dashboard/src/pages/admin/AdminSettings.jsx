@@ -14,13 +14,14 @@ import {
 const AuditLogs = lazy(() => import("./AuditLogs"));
 const StudentsAdmin = lazy(() => import("./StudentsAdmin"));
 const TeachersAdmin = lazy(() => import("./TeachersAdmin"));
+const FeesAdmin = lazy(() => import("./FeesAdmin"));
 
 /**
  * Central shell for the School Administration & Audit Center.
  *
  * Built as a tab container from day one so each future module is just
  * another entry in TABS + its own component. Audit Logs, Students,
- * Teachers are wired up; Fees, Reports & Notifications remain
+ * Teachers, and Fees are wired up; Reports & Notifications remain
  * "coming soon" placeholders until built.
  */
 
@@ -28,7 +29,7 @@ const TABS = [
   { key: "audit", label: "Audit Logs", icon: <FaHistory />, ready: true, Component: AuditLogs },
   { key: "students", label: "Students", icon: <FaUserGraduate />, ready: true, Component: StudentsAdmin },
   { key: "teachers", label: "Teachers", icon: <FaChalkboardTeacher />, ready: true, Component: TeachersAdmin },
-  { key: "fees", label: "Fees", icon: <FaMoneyBillWave />, ready: false, Component: null },
+  { key: "fees", label: "Fees", icon: <FaMoneyBillWave />, ready: true, Component: FeesAdmin },
   { key: "reports", label: "Reports & Analytics", icon: <FaChartBar />, ready: false, Component: null },
   { key: "notifications", label: "Notifications", icon: <FaBell />, ready: false, Component: null },
 ];
