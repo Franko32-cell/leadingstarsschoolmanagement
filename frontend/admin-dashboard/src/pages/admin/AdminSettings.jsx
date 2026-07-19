@@ -14,7 +14,7 @@ import {
 const AuditLogs = lazy(() => import("./AuditLogs"));
 const StudentsAdmin = lazy(() => import("./StudentsAdmin"));
 const TeachersAdmin = lazy(() => import("./TeachersAdmin"));
-const FeesAdmin = lazy(() => import("./FeesAdmin"));
+const FeesAdmin = lazy(() => import("./Feesadmin"));
 
 /**
  * Central shell for the School Administration & Audit Center.
