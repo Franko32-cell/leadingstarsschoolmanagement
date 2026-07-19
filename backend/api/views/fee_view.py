@@ -4,7 +4,7 @@ import logging
 from decimal import Decimal
 
 from django.conf import settings
-from django.db.models import Sum, Count, Q
+from django.db.models import Sum, Count, Q, Prefetch
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -165,7 +165,34 @@ class FeeViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs     = super().get_queryset()
+        # PERF FIX: FeeSerializer nests PaymentTransactionSerializer(many=True)
+        # for every fee, and PaymentTransactionSerializer.get_student_name()/
+        # get_admission_number() read obj.fee.student for every transaction.
+        # Without prefetch_related here, that was 1 query per fee for its
+        # transactions PLUS 2 extra queries per transaction (.fee, then
+        # .fee.student) — an N+1 cascade severe enough to time out the /fees/
+        # list endpoint entirely once there was enough payment history.
+        #
+        # select_related("recorded_by") on the inner queryset avoids the same
+        # problem for get_recorded_by_name(). We don't need to additionally
+        # select_related("fee__student") inside the Prefetch — Django's
+        # prefetch_related machinery reuses the exact same Fee instance object
+        # for `.fee` on each prefetched transaction, and that instance already
+        # has `.student` cached from the outer .select_related("student")
+        # below, so `.fee.student` resolves from memory with zero extra query.
+        qs = (
+            super()
+            .get_queryset()
+            .select_related("student")
+            .prefetch_related(
+                Prefetch(
+                    "transactions",
+                    queryset=PaymentTransaction.objects
+                        .select_related("recorded_by")
+                        .order_by("-created_at"),
+                )
+            )
+        )
         params = self.request.query_params
 
         student      = params.get("student")
