@@ -110,8 +110,21 @@ const ReportsAnalytics = () => {
       ]);
       if (dashRes.status === "fulfilled") setOverview(dashRes.value);
       if (analyticsRes.status === "fulfilled") setAnalytics(analyticsRes.value);
+
+      // Surface a failure even if only ONE of the two calls failed — a
+      // partial failure silently falling back to empty-state messaging
+      // ("no records for this term") looks identical to genuinely having
+      // no data, which is misleading and hides real backend problems.
       if (dashRes.status === "rejected" && analyticsRes.status === "rejected") {
         setError("Failed to load analytics. Please try again.");
+      } else if (analyticsRes.status === "rejected") {
+        setError(
+          analyticsRes.reason?.response?.status === 404
+            ? "Analytics endpoint not found (404) — the backend route may not be deployed yet."
+            : "Failed to load analytics data. Overview counts may still be shown below."
+        );
+      } else if (dashRes.status === "rejected") {
+        setError("Failed to load overview counts. Analytics data may still be shown below.");
       }
     } catch {
       setError("Failed to load analytics. Please try again.");
