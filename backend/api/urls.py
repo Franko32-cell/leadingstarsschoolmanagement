@@ -34,6 +34,7 @@ from api.views.accounts_view import (
 )
 from api.views.active_users_view import ActiveUsersView
 from api.views.audit_view import AuditLogListView, AuditLogExportCSVView
+from api.views.analytics_view import AnalyticsDashboardView
 
 # --- Router Setup ---
 router = DefaultRouter()
@@ -74,6 +75,7 @@ urlpatterns = [
 
     # 5. Dashboards & Reports
     path("dashboard/", DashboardView.as_view(), name="main-dashboard"),
+    path("analytics/dashboard/", AnalyticsDashboardView.as_view(), name="analytics-dashboard"),
     path("accounts/dashboard/", AccountsDashboardView.as_view(), name="accounts-dashboard"),
     path("accounts/ledger/", IncomeLedgerView.as_view(), name="income-ledger"),
     path("accounts/collection/", FeeCollectionReportView.as_view(), name="fee-collection"),
