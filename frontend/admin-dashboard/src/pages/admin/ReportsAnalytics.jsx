@@ -11,6 +11,7 @@ import {
 } from "react-icons/fa";
 import { getAnalyticsDashboard } from "../../services/analyticsService";
 import { getDashboard } from "../../services/dashboardService";
+import AttendanceDrillDownModal from "../../components/admin/AttendanceDrillDownModal";
 
 const ghs = (n) =>
   `GHS ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0 })}`;
@@ -99,6 +100,7 @@ const ReportsAnalytics = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [selectedClass, setSelectedClass] = useState(null); // { id, name } | null
 
   const load = useCallback(async (isRefresh = false) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
@@ -245,10 +247,25 @@ const ReportsAnalytics = () => {
             </div>
             <div className="space-y-3 pt-4 border-t border-slate-100">
               {(analytics?.attendance?.by_class || []).slice(0, 6).map((c) => (
-                <RateRow key={c.class_name} label={c.class_name} rate={c.rate} />
+                <button
+                  key={c.class_id ?? c.class_name}
+                  onClick={() => c.class_id && setSelectedClass({ id: c.class_id, name: c.class_name })}
+                  disabled={!c.class_id}
+                  className={`w-full text-left rounded-xl transition-colors ${
+                    c.class_id ? "hover:bg-slate-50 cursor-pointer" : "cursor-default"
+                  } -mx-2 px-2 py-1`}
+                  title={c.class_id ? `View ${c.class_name}'s daily attendance` : undefined}
+                >
+                  <RateRow label={c.class_name} rate={c.rate} />
+                </button>
               ))}
               {(!analytics?.attendance?.by_class || analytics.attendance.by_class.length === 0) && (
                 <p className="text-sm text-slate-400 font-medium">No attendance records for this term yet.</p>
+              )}
+              {analytics?.attendance?.by_class?.length > 0 && (
+                <p className="text-xs text-slate-400 font-medium pt-1">
+                  Click a class to see its daily attendance for a week or month.
+                </p>
               )}
             </div>
           </SectionCard>
@@ -328,6 +345,14 @@ const ReportsAnalytics = () => {
           </SectionCard>
         </div>
       </div>
+
+      {selectedClass && (
+        <AttendanceDrillDownModal
+          schoolClassId={selectedClass.id}
+          className={selectedClass.name}
+          onClose={() => setSelectedClass(null)}
+        />
+      )}
     </div>
   );
 };

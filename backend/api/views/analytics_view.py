@@ -20,6 +20,9 @@ attendance records/fees exist — the fees endpoint's earlier N+1 timeout
 is exactly the mistake this is written to avoid.
 """
 
+from calendar import monthrange
+from datetime import date as date_cls, timedelta
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Avg, Count, Q, Sum
@@ -30,6 +33,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.attendance.models import Attendance
+from apps.classes.models import SchoolClass
 from apps.results.models import Result
 from apps.fees.models import Fee
 from apps.audit.models import AuditLog
@@ -108,7 +112,7 @@ class AnalyticsDashboardView(APIView):
         )
 
         attendance_by_class = list(
-            att_qs.values("school_class__name")
+            att_qs.values("school_class__id", "school_class__name")
             .annotate(
                 total=Count("id"),
                 present_or_late=Count("id", filter=Q(status__in=["present", "late"])),
@@ -116,6 +120,7 @@ class AnalyticsDashboardView(APIView):
             .order_by("school_class__name")
         )
         for row in attendance_by_class:
+            row["class_id"] = row.pop("school_class__id")
             row["class_name"] = row.pop("school_class__name") or "Unassigned"
             row["rate"] = (
                 round(row["present_or_late"] / row["total"] * 100, 1)
@@ -201,5 +206,115 @@ class AnalyticsDashboardView(APIView):
                     "unpaid": fee_agg["unpaid"] or 0,
                 },
                 "recent_activity": recent_activity,
+            }
+        )
+
+
+# ---------------------------------------------------------------------------
+# Attendance drill-down — per-class, per-day, for a standardized week or
+# month window. "Standardized" means the boundaries are always computed the
+# same way regardless of when you look:
+#   - week  = Monday through Sunday of the week containing `date`
+#   - month = the 1st through the last calendar day of the month containing
+#     `date`
+# This is deliberately NOT a rolling "last 7 days" — a fixed, well-known
+# week/month boundary is what makes two different admins (or the same admin
+# a week later) looking at "this week" mean the same date range.
+# ---------------------------------------------------------------------------
+
+def _week_range(d):
+    start = d - timedelta(days=d.weekday())  # Monday
+    end = start + timedelta(days=6)          # Sunday
+    return start, end
+
+
+def _month_range(d):
+    start = d.replace(day=1)
+    last_day = monthrange(d.year, d.month)[1]
+    end = d.replace(day=last_day)
+    return start, end
+
+
+class AttendanceDetailView(APIView):
+    """
+    GET /api/analytics/attendance-detail/?school_class=<id>&period=week&date=2026-07-20
+
+    - school_class: required
+    - period: "week" (default) or "month"
+    - date: optional anchor date (YYYY-MM-DD), defaults to today. The
+      returned range is the standardized week/month CONTAINING this date —
+      not a rolling window ending on it — so navigating prev/next always
+      lands on clean week/month boundaries.
+
+    Returns overall totals for the period plus a day-by-day breakdown, so
+    the frontend can render both a summary and a per-day chart/list without
+    a second request.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        school_class_id = request.query_params.get("school_class")
+        if not school_class_id:
+            return Response({"error": "school_class is required"}, status=400)
+
+        period = request.query_params.get("period", "week")
+        if period not in ("week", "month"):
+            return Response({"error": "period must be 'week' or 'month'"}, status=400)
+
+        date_param = request.query_params.get("date")
+        try:
+            anchor = date_cls.fromisoformat(date_param) if date_param else timezone.localdate()
+        except ValueError:
+            return Response({"error": "date must be in YYYY-MM-DD format"}, status=400)
+
+        date_from, date_to = _week_range(anchor) if period == "week" else _month_range(anchor)
+
+        try:
+            school_class = SchoolClass.objects.get(id=school_class_id)
+        except SchoolClass.DoesNotExist:
+            return Response({"error": "Class not found"}, status=404)
+
+        qs = Attendance.objects.filter(
+            school_class_id=school_class_id,
+            date__gte=date_from,
+            date__lte=date_to,
+        )
+
+        overall = qs.aggregate(
+            total=Count("id"),
+            present_or_late=Count("id", filter=Q(status__in=["present", "late"])),
+        )
+        total = overall["total"] or 0
+        present_or_late = overall["present_or_late"] or 0
+        rate = round(present_or_late / total * 100, 1) if total else None
+
+        daily_rows = list(
+            qs.values("date")
+            .annotate(
+                total=Count("id"),
+                present=Count("id", filter=Q(status="present")),
+                late=Count("id", filter=Q(status="late")),
+                absent=Count("id", filter=Q(status="absent")),
+            )
+            .order_by("date")
+        )
+        for row in daily_rows:
+            day_present_or_late = row["present"] + row["late"]
+            row["rate"] = (
+                round(day_present_or_late / row["total"] * 100, 1) if row["total"] else None
+            )
+            row["date"] = row["date"].isoformat()
+
+        return Response(
+            {
+                "school_class": {"id": school_class.id, "name": school_class.name},
+                "period": period,
+                "date_from": date_from.isoformat(),
+                "date_to": date_to.isoformat(),
+                "total_records": total,
+                "present_or_late": present_or_late,
+                "rate": rate,
+                "daily": daily_rows,
             }
         )
