@@ -211,9 +211,10 @@ class AnalyticsDashboardView(APIView):
 
 
 # ---------------------------------------------------------------------------
-# Attendance drill-down — per-class, per-day, for a standardized week or
-# month window. "Standardized" means the boundaries are always computed the
-# same way regardless of when you look:
+# Attendance drill-down — per-class, per-day, for a standardized day, week,
+# or month window. "Standardized" means the boundaries are always computed
+# the same way regardless of when you look:
+#   - day   = the single calendar date given
 #   - week  = Monday through Sunday of the week containing `date`
 #   - month = the 1st through the last calendar day of the month containing
 #     `date`
@@ -240,7 +241,7 @@ class AttendanceDetailView(APIView):
     GET /api/analytics/attendance-detail/?school_class=<id>&period=week&date=2026-07-20
 
     - school_class: required
-    - period: "week" (default) or "month"
+    - period: "day", "week" (default), or "month"
     - date: optional anchor date (YYYY-MM-DD), defaults to today. The
       returned range is the standardized week/month CONTAINING this date —
       not a rolling window ending on it — so navigating prev/next always
@@ -259,7 +260,7 @@ class AttendanceDetailView(APIView):
             return Response({"error": "school_class is required"}, status=400)
 
         period = request.query_params.get("period", "week")
-        if period not in ("week", "month"):
+        if period not in ("day", "week", "month"):
             return Response({"error": "period must be 'week' or 'month'"}, status=400)
 
         date_param = request.query_params.get("date")
@@ -268,7 +269,12 @@ class AttendanceDetailView(APIView):
         except ValueError:
             return Response({"error": "date must be in YYYY-MM-DD format"}, status=400)
 
-        date_from, date_to = _week_range(anchor) if period == "week" else _month_range(anchor)
+        if period == "day":
+            date_from = date_to = anchor
+        elif period == "week":
+            date_from, date_to = _week_range(anchor)
+        else:
+            date_from, date_to = _month_range(anchor)
 
         try:
             school_class = SchoolClass.objects.get(id=school_class_id)
