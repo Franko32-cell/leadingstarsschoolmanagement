@@ -17,3 +17,23 @@ export const getAttendanceDetail = (schoolClassId, { period = "week", date } = {
   API.get("/analytics/attendance-detail/", {
     params: { school_class: schoolClassId, period, ...(date ? { date } : {}) },
   }).then((res) => res.data);
+
+/**
+ * Individual attendance records for a single class on a single day, via
+ * the existing /attendance/ router endpoint (AttendanceViewSet) rather
+ * than a new one-off endpoint. Normalizes DRF's paginated
+ * {count, results: [...]} shape down to a plain array, since whether
+ * pagination is enabled on this ViewSet may change independently of this
+ * file.
+ */
+export const getAttendanceRecords = (schoolClassId, date) =>
+  API.get("/attendance/", {
+    params: { school_class: schoolClassId, date },
+  }).then((res) => (Array.isArray(res.data) ? res.data : res.data?.results || []));
+
+/**
+ * Deletes a single attendance record (e.g. one marked wrong) via the same
+ * /attendance/ router endpoint.
+ */
+export const deleteAttendanceRecord = (recordId) =>
+  API.delete(`/attendance/${recordId}/`).then((res) => res.data);
