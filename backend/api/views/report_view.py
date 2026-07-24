@@ -70,6 +70,28 @@ def _parse_year(raw) -> tuple[int | None, str | None]:
         return None, "year must be a valid integer"
 
 
+def _computed_score(result: Result) -> float:
+    """
+    Returns the subject total computed live from reopen+ca+exams, rather
+    than trusting the persisted `score` column.
+
+    Result.save() is supposed to guarantee score == reopen+ca+exams on
+    every write, but a handful of production rows have been found with a
+    stale/mismatched `score` (most likely from a raw-SQL data fix, an old
+    pre-migration formula, or a duplicate row for the same
+    student+subject+term+year under a different school_class — the model's
+    unique_together does not include school_class, so that's possible).
+
+    Recomputing here means the report/PDF can never display a total that
+    doesn't match the visible reopen/ca/exams breakdown, regardless of what
+    ended up in the database. This does NOT fix the underlying bad row —
+    run a data-repair pass (iterate Result.objects.all() and call .save()
+    on any row where stored score != reopen+ca+exams) to fix those at
+    the source.
+    """
+    return round((result.reopen or 0.0) + (result.ca or 0.0) + (result.exams or 0.0), 1)
+
+
 def _fetch_report(student, term: str, year: int):
     """
     Fetches the Report for (student, term, year).
@@ -248,14 +270,17 @@ class StudentReportView(APIView):
         passed = 0
         failed = 0
         for r in results:
-            score = r.score or 0.0
+            # FIX: recompute from components instead of trusting r.score,
+            # which has been found to be stale/out-of-sync for some rows
+            # (see _computed_score() docstring).
+            score = _computed_score(r)
             grade, remark = get_grade_and_remark(score, thresholds)
             subjects.append({
                 "subject": r.subject.name,
                 "reopen": r.reopen,
                 "ca": r.ca,
                 "exams": r.exams,
-                "score": r.score,
+                "score": score,
                 "grade": grade,
                 "remark": remark,
                 "subject_position": r.subject_position if show_position else None,
