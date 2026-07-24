@@ -11,7 +11,7 @@ import {
 } from "react-icons/fa";
 import { getAnalyticsDashboard } from "../../services/analyticsService";
 import { getDashboard } from "../../services/dashboardService";
-import AttendanceDrillDownModal from "../../components/admin/AttendanceDrillDownModal";
+import AttendanceDrillDownModal from "../../components/common/AttendanceDrillDownModal";
 
 const ghs = (n) =>
   `GHS ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0 })}`;
