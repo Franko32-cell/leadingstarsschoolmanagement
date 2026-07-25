@@ -10,9 +10,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # ── Security ───────────────────────────────────────────────────
 
-SECRET_KEY = os.getenv("SECRET_KEY", "unsafe-secret-key")
-
 DEBUG = os.getenv("DEBUG", "False") == "True"
+
+# In DEBUG, fall back to an insecure key for convenience.
+# In production, fail loudly instead of silently running with a
+# guessable, hardcoded SECRET_KEY if the env var is missing.
+if DEBUG:
+    SECRET_KEY = os.getenv("SECRET_KEY", "unsafe-secret-key")
+else:
+    SECRET_KEY = os.environ["SECRET_KEY"]
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", ".onrender.com,.netlify.app,localhost,127.0.0.1").split(",")
 
@@ -33,6 +39,8 @@ INSTALLED_APPS = [
 
     'cloudinary',
     'cloudinary_storage',
+
+    'axes',
 
     'apps.accounts',
     'apps.students',
@@ -62,6 +70,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'api.middleware.ActiveUserMiddleware',
+    'axes.middleware.AxesMiddleware',
 ]
 
 
@@ -205,6 +214,16 @@ CORS_ALLOW_HEADERS = [
 
 AUTH_USER_MODEL = 'accounts.User'
 
+AUTHENTICATION_BACKENDS = [
+    "axes.backends.AxesBackend",   # must be listed first
+    "django.contrib.auth.backends.ModelBackend",
+]
+
+# django-axes: lock out repeated failed logins by username + IP combo
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = 1  # hours
+AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
+
 
 # ── Django REST Framework ──────────────────────────────────────
 
@@ -212,6 +231,13 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "5/min",
+        "register": "3/min",
+    },
 }
 
 
@@ -235,6 +261,9 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
 
 
 # ── Logging ────────────────────────────────────────────────────

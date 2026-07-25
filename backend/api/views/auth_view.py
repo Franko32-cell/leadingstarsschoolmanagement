@@ -1,5 +1,3 @@
-# api/views/auth_view.py
-
 import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -28,6 +26,23 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────
+
+def get_client_ip(request):
+    """
+    Return the originating client IP, not the full proxy chain.
+    Render sets X-Forwarded-For as "client, proxy1, proxy2, ...";
+    the first entry is the real client. Falls back to REMOTE_ADDR
+    if the header isn't present.
+    """
+    xff = request.META.get("HTTP_X_FORWARDED_FOR")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
+
+
+# ─────────────────────────────────────────────
 # Permission helper
 # ─────────────────────────────────────────────
 
@@ -45,6 +60,7 @@ class IsAdminRole(IsAuthenticated):
 # ─────────────────────────────────────────────
 
 class LoginView(APIView):
+    throttle_scope = "login"
 
     def post(self, request):
         identifier = request.data.get("username")
@@ -83,7 +99,7 @@ class LoginView(APIView):
         user = authenticate(request=request, username=username, password=password)
 
         if user is None:
-            ip = request.META.get("HTTP_X_FORWARDED_FOR") or request.META.get("REMOTE_ADDR")
+            ip = get_client_ip(request)
             logger.warning(
                 "Unauthorized login attempt: identifier=%s ip=%s",
                 normalized_identifier,
@@ -190,6 +206,8 @@ class LoginView(APIView):
 
 
 class RegisterView(APIView):
+    throttle_scope = "register"
+
     def post(self, request):
         username = request.data.get("username")
         email    = request.data.get("email")
