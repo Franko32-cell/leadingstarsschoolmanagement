@@ -6,9 +6,11 @@ from rest_framework import status, viewsets, filters
 from rest_framework.decorators import action
 
 from django.contrib.auth import get_user_model, authenticate
-from django.contrib.auth.models import update_last_login       # ← new
+from django.contrib.auth.models import update_last_login
 
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from axes.handlers.proxy import AxesProxyHandler          # ← new
 
 from apps.students.models import Student
 from apps.teachers.models import Teacher
@@ -96,6 +98,37 @@ class LoginView(APIView):
                 except Teacher.DoesNotExist:
                     pass  # fall through; authenticate() will simply fail
 
+        # ── Check Axes lockout BEFORE attempting authentication ──────────
+        # authenticate() returns None both for wrong credentials and for a
+        # locked-out account, so we can't rely on it alone to tell the two
+        # apart. Check explicitly so we can return a distinct, actionable
+        # "account suspended" message instead of a generic 401.
+        axes_credentials = {"username": username, "request": request}
+        if AxesProxyHandler.is_locked(request, axes_credentials):
+            logger.warning(
+                "Login blocked: account suspended for identifier=%s ip=%s",
+                normalized_identifier,
+                get_client_ip(request),
+            )
+            log_action(
+                request=request,
+                action=AuditLog.Action.LOGIN_FAILED,
+                module=AuditLog.Module.AUTH,
+                status=AuditLog.Status.FAILED,
+                resource_repr=f"Login blocked (account suspended): {normalized_identifier}",
+                description="Account locked after repeated failed login attempts",
+            )
+            return Response(
+                {
+                    "error": "account_suspended",
+                    "message": (
+                        "This account has been suspended after multiple failed login "
+                        "attempts. Please contact your administrator to reset it."
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         user = authenticate(request=request, username=username, password=password)
 
         if user is None:
@@ -149,7 +182,6 @@ class LoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # ← update last_login so active user tracking works
         update_last_login(None, user)
 
         log_action(
