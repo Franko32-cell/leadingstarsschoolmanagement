@@ -219,10 +219,17 @@ AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
 ]
 
-# django-axes: lock out repeated failed logins by username + IP combo
-AXES_FAILURE_LIMIT = 5
-AXES_COOLOFF_TIME = 1  # hours
-AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
+# django-axes: suspend account after 3 failed login attempts.
+# Locked by username only (not IP) so the account stays suspended
+# regardless of which device/network is used, and so a distributed
+# attacker guessing many usernames from one IP can't dodge the lock
+# by spreading attempts across IPs.
+# AXES_COOLOFF_TIME = None means no auto-unlock — the account stays
+# suspended until an admin resets it (see LoginView / management command).
+AXES_FAILURE_LIMIT = 3
+AXES_LOCKOUT_PARAMETERS = ["username"]
+AXES_COOLOFF_TIME = None
+AXES_RESET_ON_SUCCESS = True
 
 
 # ── Django REST Framework ──────────────────────────────────────
