@@ -85,6 +85,12 @@ urlpatterns = [
     path("audit-logs/", AuditLogListView.as_view(), name="audit-logs"),
     path("audit-logs/export/", AuditLogExportCSVView.as_view(), name="audit-logs-export"),
 
-    # 6. Router-generated URLs
+    # 6. General Ledger (Phase 1 of the accounting expansion)
+    # Note this lives at /accounting/... to avoid colliding with the existing
+    # /accounts/... reporting endpoints above, which read off Fee/PaymentTransaction
+    # rather than the new double-entry ledger.
+    path("accounting/", include("apps.accounting.urls")),
+
+    # 7. Router-generated URLs
     path("", include(router.urls)),
 ]
