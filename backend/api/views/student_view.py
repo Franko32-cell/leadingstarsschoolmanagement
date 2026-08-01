@@ -1,6 +1,7 @@
 import secrets
 import string
 
+from django.db import models
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
@@ -26,10 +27,19 @@ class StudentViewSet(ModelViewSet):
         queryset = super().get_queryset()
         school_class     = self.request.query_params.get("school_class")
         admission_number = self.request.query_params.get("admission_number")
+        search           = self.request.query_params.get("search")
+
         if school_class:
             queryset = queryset.filter(school_class_id=school_class)
         if admission_number:
             queryset = queryset.filter(admission_number__iexact=admission_number)
+        if search:
+            queryset = queryset.filter(
+                models.Q(first_name__icontains=search) |
+                models.Q(last_name__icontains=search) |
+                models.Q(student_name__icontains=search) |
+                models.Q(admission_number__icontains=search)
+            )
 
         # Archived students are hidden from normal listings by default —
         # pass ?include_archived=true to see them (e.g. the "Restore" view

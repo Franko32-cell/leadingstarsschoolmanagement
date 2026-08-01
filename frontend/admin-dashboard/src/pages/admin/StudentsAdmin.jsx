@@ -62,7 +62,7 @@ const StudentsAdmin = React.memo(() => {
     <PersonAdminTable
       title="Students"
       subtitle="students in the school system"
-      searchPlaceholder="Search by name, admission number, or class…"
+      searchPlaceholder="Search by student name or admission number…"
       fetchList={getStudentsAdmin}
       actions={STUDENT_ACTIONS}
       rowConfig={STUDENT_ROW_CONFIG}
