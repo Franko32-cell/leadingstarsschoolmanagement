@@ -55,8 +55,9 @@ const NAV_SECTIONS = [
   {
     heading: "Finance",
     items: [
-      { name: "Fees",     path: "/admin/fees",     icon: FaMoneyBill },
-      { name: "Accounts", path: "/admin/accounts", icon: FaWallet    },
+      { name: "Fees",       path: "/admin/fees",       icon: FaMoneyBill },
+      { name: "Accounting", path: "/admin/accounting", icon: FaChartBar  },
+      { name: "Accounts",   path: "/admin/accounts", icon: FaWallet    },
     ],
   },
   {

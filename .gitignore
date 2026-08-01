@@ -34,3 +34,4 @@ package-lock.json
 
 # Env
 .env
+backend/.venv/
