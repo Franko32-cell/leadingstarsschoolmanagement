@@ -47,6 +47,7 @@ from .grades import (
     get_interp_rows,
     fmt_date,
 )
+from .result_view import assign_subject_positions
 
 # ---------------------------------------------------------------------------
 # Colours
@@ -298,6 +299,23 @@ class StudentReportPDFView(APIView):
         # ── Subjects ─────────────────────────────────────────────────
         subjects = []
         total_score = 0.0
+
+        if show_position and student.school_class and results:
+            class_results = list(
+                Result.objects
+                .filter(
+                    school_class=student.school_class,
+                    term=term,
+                    year=year,
+                )
+                .select_related("subject")
+            )
+            if class_results:
+                assign_subject_positions(class_results)
+                positions = {r.id: r.subject_position for r in class_results}
+                for r in results:
+                    r.subject_position = positions.get(r.id)
+
         for r in results:
             # FIX: recompute from components instead of trusting r.score,
             # which has been found to be stale/out-of-sync for some rows.

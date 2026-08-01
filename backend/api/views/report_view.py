@@ -25,6 +25,8 @@ from .grades import (
     get_grade_and_remark,
     get_overall_grade,
 )
+from .result_view import assign_subject_positions
+from apps.results.views import format_position
 
 # ---------------------------------------------------------------------------
 # Date Parsing Helper
@@ -206,6 +208,8 @@ class ReportResponseSerializer(serializers.Serializer):
     level = serializers.CharField()
     school_name = serializers.CharField()
     show_position = serializers.BooleanField()
+    position = serializers.IntegerField(allow_null=True)
+    position_formatted = serializers.CharField(allow_null=True)
     subjects = SubjectResultSerializer(many=True)
     total_score = serializers.FloatField()
     average_score = serializers.FloatField()
@@ -251,13 +255,29 @@ class StudentReportView(APIView):
         thresholds = get_thresholds(level)
         show_position = level != "nursery_kg"
 
-        results = (
+        results = list(
             Result.objects
             .filter(student=student, term=term, year=year)
             .select_related("subject")
         )
 
         report, has_promo = _fetch_report(student, term, year)
+
+        if show_position and student.school_class and results:
+            class_results = list(
+                Result.objects
+                .filter(
+                    school_class=student.school_class,
+                    term=term,
+                    year=year,
+                )
+                .select_related("subject")
+            )
+            if class_results:
+                assign_subject_positions(class_results)
+                positions = {r.id: r.subject_position for r in class_results}
+                for r in results:
+                    r.subject_position = positions.get(r.id)
 
         # ── Subjects ────────────────────────────────────────────────
         subjects = []
@@ -289,6 +309,35 @@ class StudentReportView(APIView):
         subject_count = len(subjects)
         average = round(total_score / subject_count, 1) if subject_count else 0.0
         overall_grade = get_overall_grade(average, thresholds)
+
+        position = None
+        position_formatted = None
+        if show_position and student.school_class:
+            class_totals = {}
+            class_results = Result.objects.filter(
+                school_class=student.school_class,
+                term=term,
+                year=year,
+            )
+            for r in class_results:
+                class_totals.setdefault(r.student_id, 0.0)
+                class_totals[r.student_id] += _computed_score(r)
+
+            ranked = sorted(
+                [{"student_id": sid, "total": total} for sid, total in class_totals.items()],
+                key=lambda x: x["total"], reverse=True,
+            )
+
+            current_rank = 0
+            prev_total = object()
+            for i, item in enumerate(ranked):
+                if item["total"] != prev_total:
+                    current_rank = i + 1
+                    prev_total = item["total"]
+                if item["student_id"] == student.id:
+                    position = current_rank
+                    break
+            position_formatted = format_position(position) if position is not None else None
 
         # ── Attendance — single aggregate query ───────────────────────
         att = (
@@ -332,6 +381,8 @@ class StudentReportView(APIView):
             "level": level,
             "school_name": SCHOOL_NAMES.get(level, "LEADING STARS ACADEMY"),
             "show_position": show_position,
+            "position": position,
+            "position_formatted": position_formatted,
             "subjects": subjects,
             "total_score": round(total_score, 1),
             "average_score": average,

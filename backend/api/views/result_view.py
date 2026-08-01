@@ -96,6 +96,25 @@ def recompute_subject_positions(subject_id, term, school_class_id, year):
     Result.objects.bulk_update(results, ["subject_position"])
 
 
+def assign_subject_positions(results: list[Result]) -> None:
+    """Assign live subject positions for an in-memory list of Result rows."""
+    groups: dict = {}
+    for result in results:
+        key = (result.subject_id, result.term, result.school_class_id, result.year)
+        groups.setdefault(key, []).append(result)
+
+    for group in groups.values():
+        group.sort(key=lambda r: (-_computed_score(r), r.id))
+        current_rank = 0
+        prev_score = object()
+        for i, result in enumerate(group):
+            score = _computed_score(result)
+            if score != prev_score:
+                current_rank = i + 1
+                prev_score = score
+            result.subject_position = current_rank
+
+
 def _assign_ranks(rows: list[dict], key: str = "total_score") -> None:
     """Standard competition ranking (1, 1, 3, 4 …) by descending key value."""
     current_rank = 0
@@ -360,9 +379,12 @@ class ResultViewSet(ModelViewSet):
         if year:
             qs = qs.filter(year=year)
 
+        results = list(qs)
+        assign_subject_positions(results)
+
         student_map: dict = {}
 
-        for r in qs:
+        for r in results:
             sid        = r.student.id
             level      = getattr(r.student.school_class, "level", "basic_7_9") if r.student.school_class else "basic_7_9"
             thresholds = get_thresholds(level)
