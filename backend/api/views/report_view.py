@@ -311,33 +311,7 @@ class StudentReportView(APIView):
         overall_grade = get_overall_grade(average, thresholds)
 
         position = None
-        position_formatted = None
-        if show_position and student.school_class:
-            class_totals = {}
-            class_results = Result.objects.filter(
-                school_class=student.school_class,
-                term=term,
-                year=year,
-            )
-            for r in class_results:
-                class_totals.setdefault(r.student_id, 0.0)
-                class_totals[r.student_id] += _computed_score(r)
-
-            ranked = sorted(
-                [{"student_id": sid, "total": total} for sid, total in class_totals.items()],
-                key=lambda x: x["total"], reverse=True,
-            )
-
-            current_rank = 0
-            prev_total = object()
-            for i, item in enumerate(ranked):
-                if item["total"] != prev_total:
-                    current_rank = i + 1
-                    prev_total = item["total"]
-                if item["student_id"] == student.id:
-                    position = current_rank
-                    break
-            position_formatted = format_position(position) if position is not None else None
+        position_formatted = "N/A" if show_position and student.school_class else None
 
         # ── Attendance — single aggregate query ───────────────────────
         att = (
