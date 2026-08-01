@@ -40,11 +40,38 @@ def get_current_year() -> int:
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _computed_score(result: Result) -> float:
+    """
+    Returns the subject total computed live from reopen+ca+exams, rather
+    than trusting the persisted `score` column.
+
+    Result.save() is supposed to guarantee score == reopen+ca+exams on
+    every write, but a handful of production rows have been found with a
+    stale/mismatched `score` (most likely from a raw-SQL data fix, an old
+    pre-migration formula, or a duplicate row for the same
+    student+subject+term+year under a different school_class — the model's
+    unique_together does not include school_class, so that's possible).
+
+    This mirrors _computed_score() in report_view.py / pdf_view.py.
+    Ranking (subject positions and the class summary) has to use the same
+    source of truth as the per-student report, or a stale row can make a
+    student's rank and the total shown on their report disagree.
+
+    This does NOT fix the underlying bad row — run a data-repair pass
+    (iterate Result.objects.all() and call .save() on any row where
+    stored score != reopen+ca+exams) to fix those at the source.
+    """
+    return round((result.reopen or 0.0) + (result.ca or 0.0) + (result.exams or 0.0), 1)
+
+
 def recompute_subject_positions(subject_id, term, school_class_id, year):
     """
     Rank all results for a subject+term+class+year by score descending.
     Uses standard competition ranking: tied scores share the same rank and
     the next rank skips (1, 1, 3, 4 …).
+
+    Ranks on the live computed score (reopen+ca+exams) rather than the
+    persisted `score` column — see _computed_score() docstring.
     """
     results = list(
         Result.objects.filter(
@@ -52,16 +79,18 @@ def recompute_subject_positions(subject_id, term, school_class_id, year):
             term=term,
             school_class_id=school_class_id,
             year=year,
-        ).order_by("-score", "id")
+        )
     )
+    results.sort(key=lambda r: (-_computed_score(r), r.id))
 
     current_rank = 0
     prev_score   = object()  # sentinel — never equals a real score
 
     for i, r in enumerate(results):
-        if r.score != prev_score:
+        score = _computed_score(r)
+        if score != prev_score:
             current_rank = i + 1
-            prev_score   = r.score
+            prev_score   = score
         r.subject_position = current_rank
 
     Result.objects.bulk_update(results, ["subject_position"])
@@ -337,7 +366,12 @@ class ResultViewSet(ModelViewSet):
             sid        = r.student.id
             level      = getattr(r.student.school_class, "level", "basic_7_9") if r.student.school_class else "basic_7_9"
             thresholds = get_thresholds(level)
-            score      = r.score or 0
+            # FIX: recompute from components instead of trusting r.score,
+            # which has been found to be stale/out-of-sync for some rows
+            # (see _computed_score() docstring). Using the raw column here
+            # let a student's class-summary total/rank disagree with the
+            # total shown on their individual report card.
+            score      = _computed_score(r)
             grade, remark = get_grade_and_remark(score, thresholds)
 
             if sid not in student_map:
@@ -357,15 +391,18 @@ class ResultViewSet(ModelViewSet):
                 "reopen":           r.reopen,
                 "ca":               r.ca,
                 "exams":            r.exams,
-                "score":            r.score,
+                "score":            score,
                 "grade":            grade,
                 "remark":           remark,
                 "subject_position": r.subject_position,
             })
 
-            if r.score is not None:
-                student_map[sid]["total_score"] += r.score
-                student_map[sid]["count"]        += 1
+            # _computed_score() always returns a float, so every result now
+            # contributes to the total (previously guarded by
+            # `if r.score is not None`, which was a proxy for "row has a
+            # score" that's no longer meaningful once we compute it live).
+            student_map[sid]["total_score"] += score
+            student_map[sid]["count"]        += 1
 
         rows = []
         for data in student_map.values():

@@ -45,9 +45,6 @@ from .grades import (
     get_grade_and_remark,
     get_overall_grade,
     get_interp_rows,
-    rank_students,
-    get_student_position,
-    fmt_pos,
     fmt_date,
 )
 
@@ -323,17 +320,15 @@ class StudentReportPDFView(APIView):
         average = round(total_score / subject_count, 1) if subject_count else 0.0
         overall_grade = get_overall_grade(average, thresholds)
 
-        # ── Ranking — single aggregated query ────────────────────────
+        # ── Class roll count ─────────────────────────────────────────
+        # NOTE: this student's individual overall rank/position has been
+        # intentionally removed from the PDF (only subject-level positions
+        # are shown now). We still show "Pupils on Roll" without needing
+        # rank_students()'s score aggregation.
         if show_position and student.school_class:
-            ranked = rank_students(student.school_class, term, year)
-            position = get_student_position(ranked, student.id)
-            out_of = len(ranked)
-            show_position = position is not None
+            out_of = Student.objects.filter(school_class=student.school_class).count()
         else:
-            ranked = []
-            position = None
             out_of = 0
-            show_position = False
 
         # ── Promotion fields ──────────────────────────────────────────
         vacation_date = None
@@ -361,7 +356,6 @@ class StudentReportPDFView(APIView):
             average=average,
             overall_grade=overall_grade,
             total_score=total_score,
-            position=position,
             out_of=out_of,
             present_days=present_days,
             total_days=total_days,
@@ -400,7 +394,7 @@ class StudentReportPDFView(APIView):
 # ---------------------------------------------------------------------------
 
 def build_pdf(
-    student, subjects, average, overall_grade, total_score, position, out_of,
+    student, subjects, average, overall_grade, total_score, out_of,
     present_days, total_days, att_percent, report, term, year, level,
     show_position, school_name, school_motto, interp_rows,
     vacation_date, resumption_date, promotion_status, next_class_name,
@@ -468,15 +462,13 @@ def build_pdf(
 
     # ── Student info ────────────────────────────────────────────────
     class_name = student.school_class.name if student.school_class else "-"
-    position_text = (
-        f"<b>POSITION:</b> {fmt_pos(position)} out of {out_of}"
-        if show_position else "<b>POSITION:</b> N/A"
-    )
     avg_color = GREEN if average >= 60 else (GOLD if average >= 45 else RED)
 
     promotion_label = promotion_status if promotion_status else "N/A"
     next_class_label = next_class_name if next_class_name else "N/A"
 
+    # NOTE: overall POSITION row removed — only subject-level positions
+    # (the "POS." column in the subject table below) are shown now.
     info_rows = [
         [
             para(f"<b>NAME:</b> {student.full_name}", 9),
@@ -492,7 +484,7 @@ def build_pdf(
         ],
         [
             para(f"<b>ADMISSION NO:</b> {student.admission_number}", 9),
-            para(position_text, 9, color=BLUE2),
+            para("", 9),
         ],
         [
             para(f"<b>PROMOTION STATUS:</b> {promotion_label}", 9, color=GREEN if promotion_status else BLUE2),

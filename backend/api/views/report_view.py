@@ -24,9 +24,6 @@ from .grades import (
     get_thresholds,
     get_grade_and_remark,
     get_overall_grade,
-    rank_students,
-    get_student_position,
-    fmt_pos,
 )
 
 # ---------------------------------------------------------------------------
@@ -215,8 +212,6 @@ class ReportResponseSerializer(serializers.Serializer):
     overall_grade = serializers.CharField()
     subjects_passed = serializers.IntegerField()
     subjects_failed = serializers.IntegerField()
-    position = serializers.IntegerField(allow_null=True)
-    position_formatted = serializers.CharField(allow_null=True)
     out_of = serializers.IntegerField(allow_null=True)
     attendance = serializers.IntegerField()
     attendance_total = serializers.IntegerField()
@@ -308,17 +303,15 @@ class StudentReportView(APIView):
         present_days = att["present"] or 0
         att_percent = round((present_days / total_days) * 100) if total_days else 0
 
-        # ── Ranking — single aggregated query, no N+1 ─────────────────
+        # ── Class roll count ───────────────────────────────────────────
+        # NOTE: this student's individual overall rank/position has been
+        # intentionally removed from the report (only subject-level
+        # positions are shown now). We still report the class size
+        # ("out of N") without needing rank_students()'s score aggregation.
         if show_position and student.school_class:
-            ranked = rank_students(student.school_class, term, year)
-            position = get_student_position(ranked, student.id)
-            out_of = len(ranked)
-            show_position = position is not None
+            out_of = Student.objects.filter(school_class=student.school_class).count()
         else:
-            ranked = []
-            position = None
             out_of = None
-            show_position = False
 
         # ── Promotion fields ───────────────────────────────────────
         promotion_status = None
@@ -345,8 +338,6 @@ class StudentReportView(APIView):
             "overall_grade": overall_grade,
             "subjects_passed": passed,
             "subjects_failed": failed,
-            "position": position,
-            "position_formatted": fmt_pos(position) if position is not None else None,
             "out_of": out_of,
             "attendance": present_days,
             "attendance_total": total_days,
