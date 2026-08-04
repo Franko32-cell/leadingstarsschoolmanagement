@@ -303,16 +303,28 @@ class StudentReportPDFView(APIView):
         total_score = 0.0
 
         class_results = []
-        if show_position and student.school_class and results:
-            class_results = list(
-                Result.objects
-                .filter(
-                    school_class=student.school_class,
-                    term=term,
-                    year=year,
+        if show_position and results:
+            # Group by the school_class each result was actually recorded
+            # under for this term/year — NOT student.school_class, which
+            # reflects the student's CURRENT class. After an end-of-term
+            # promotion these can differ (e.g. promoted Basic 2 → Basic 3,
+            # but their term3 results still belong to Basic 2), and
+            # filtering by the current class silently returns zero
+            # class_results, dropping subject positions for every
+            # promoted student.
+            result_class_ids = {
+                r.school_class_id for r in results if r.school_class_id is not None
+            }
+            if result_class_ids:
+                class_results = list(
+                    Result.objects
+                    .filter(
+                        school_class_id__in=result_class_ids,
+                        term=term,
+                        year=year,
+                    )
+                    .select_related("subject")
                 )
-                .select_related("subject")
-            )
             if class_results:
                 assign_subject_positions(class_results)
                 positions = {r.id: r.subject_position for r in class_results}
@@ -353,7 +365,15 @@ class StudentReportPDFView(APIView):
         position_formatted = "N/A"
 
         if show_position and student.school_class:
-            out_of = Student.objects.filter(school_class=student.school_class).count()
+            # Prefer the actual headcount of students who have results in
+            # class_results (the class they were in for this term/year) —
+            # this can differ from their CURRENT class roster after an
+            # end-of-term promotion. Falls back to the current roster only
+            # when there are no results to count from.
+            if class_results:
+                out_of = len({r.student_id for r in class_results})
+            else:
+                out_of = Student.objects.filter(school_class=student.school_class).count()
 
             if class_results:
                 totals: dict[int, list[int]] = {}

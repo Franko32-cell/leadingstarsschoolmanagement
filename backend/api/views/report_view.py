@@ -267,16 +267,24 @@ class StudentReportView(APIView):
         position = None
         position_formatted = "N/A" if show_position and student.school_class else None
 
-        if show_position and student.school_class and results:
-            class_results = list(
-                Result.objects
-                .filter(
-                    school_class=student.school_class,
-                    term=term,
-                    year=year,
+        if show_position and results:
+            # See report_pdf_view.py — group by each result's own
+            # school_class_id for this term/year, not the student's
+            # current class, so promoted students still get ranked
+            # correctly against the class they were actually in.
+            result_class_ids = {
+                r.school_class_id for r in results if r.school_class_id is not None
+            }
+            if result_class_ids:
+                class_results = list(
+                    Result.objects
+                    .filter(
+                        school_class_id__in=result_class_ids,
+                        term=term,
+                        year=year,
+                    )
+                    .select_related("subject")
                 )
-                .select_related("subject")
-            )
             if class_results:
                 assign_subject_positions(class_results)
                 positions = {r.id: r.subject_position for r in class_results}
@@ -362,7 +370,15 @@ class StudentReportView(APIView):
         # positions are shown now). We still report the class size
         # ("out of N") without needing rank_students()'s score aggregation.
         if show_position and student.school_class:
-            out_of = Student.objects.filter(school_class=student.school_class).count()
+            # See report_pdf_view.py — count students actually present in
+            # class_results (the class they were in for this term/year)
+            # rather than the student's current roster, which can differ
+            # after an end-of-term promotion. Falls back to the current
+            # roster only when there are no results to count from.
+            if class_results:
+                out_of = len({r.student_id for r in class_results})
+            else:
+                out_of = Student.objects.filter(school_class=student.school_class).count()
         else:
             out_of = None
 
