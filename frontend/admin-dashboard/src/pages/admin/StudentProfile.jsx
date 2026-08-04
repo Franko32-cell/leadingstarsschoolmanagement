@@ -283,7 +283,7 @@ const Results = ({ studentId }) => {
                 {report.show_position ? report.position_formatted : "—"}
               </p>
               <p className="text-[11px] font-bold text-blue-600 mt-0.5">
-                Position {report.show_position ? `/ ${report.out_of}` : ""}
+                Position {report.show_position && report.position_formatted !== "N/A" ? `/ ${report.out_of}` : ""}
               </p>
             </div>
           </div>

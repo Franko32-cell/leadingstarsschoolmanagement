@@ -732,7 +732,9 @@ const Reports = () => {
                 },
                 {
                   label: "Position",
-                  value: report.show_position
+                  value: report.position_formatted === "N/A"
+                    ? "N/A"
+                    : report.show_position
                     ? report.position_formatted
                       ? `${report.position_formatted} / ${report.out_of}`
                       : report.position != null

@@ -284,7 +284,7 @@ const ReportsTab = ({
                   </div>
                   {report.show_position && (
                     <div className="rounded-2xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                      Class position: {report.position_formatted ?? report.position} / {report.out_of}
+                      Class position: {report.position_formatted === "N/A" ? "N/A" : `${report.position_formatted ?? report.position} / ${report.out_of}`}
                     </div>
                   )}
                 </div>

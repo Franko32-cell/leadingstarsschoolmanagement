@@ -104,8 +104,6 @@ class ResultsApiTests(TestCase):
             last_name="Smith",
             school_class=self.school_class,
         )
-        subject2 = Subject.objects.create(name="English", school_class=self.school_class)
-
         Result.objects.create(
             student=self.student,
             subject=self.subject,
@@ -118,7 +116,7 @@ class ResultsApiTests(TestCase):
         )
         Result.objects.create(
             student=student2,
-            subject=subject2,
+            subject=self.subject,
             school_class=self.school_class,
             term="term3",
             year=settings.CURRENT_YEAR,
@@ -136,6 +134,7 @@ class ResultsApiTests(TestCase):
         self.assertTrue(response.data["show_position"])
         self.assertIsNone(response.data["position"])
         self.assertEqual(response.data["position_formatted"], "N/A")
+        self.assertEqual(response.data["subjects"][0]["subject_position"], "1st")
         self.assertEqual(response.data["out_of"], 2)
-        self.assertEqual(response.data["average_score"], 30.0)
+        self.assertEqual(response.data["average_score"], 30)
         self.assertEqual(response.data["overall_grade"], "9")

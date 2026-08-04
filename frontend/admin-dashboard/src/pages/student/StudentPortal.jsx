@@ -1373,7 +1373,7 @@ const StudentPortal = () => {
                   <KpiCard label="Average"     value={report.average_score}/>
                   <KpiCard label="Position"
                     value={report.show_position ? report.position_formatted : "N/A"}
-                    sub={report.show_position && report.out_of ? `out of ${report.out_of}` : null}
+                    sub={report.show_position && report.position_formatted !== "N/A" && report.out_of ? `out of ${report.out_of}` : null}
                   />
                   <KpiCard label="Overall Grade" value={report.overall_grade}/>
                 </div>
@@ -1767,7 +1767,7 @@ const StudentPortal = () => {
                   <KpiCard label="Average"     value={report.average_score}/>
                   <KpiCard label="Position"
                     value={report.show_position ? report.position_formatted : "N/A"}
-                    sub={report.show_position && report.out_of ? `out of ${report.out_of}` : null}
+                    sub={report.show_position && report.position_formatted !== "N/A" && report.out_of ? `out of ${report.out_of}` : null}
                   />
                   <KpiCard label="Overall Grade" value={report.overall_grade}/>
                 </div>

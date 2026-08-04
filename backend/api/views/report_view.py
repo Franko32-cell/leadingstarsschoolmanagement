@@ -192,10 +192,10 @@ class SubjectResultSerializer(serializers.Serializer):
     reopen = serializers.FloatField(allow_null=True)
     ca = serializers.FloatField(allow_null=True)
     exams = serializers.FloatField(allow_null=True)
-    score = serializers.FloatField(allow_null=True)
+    score = serializers.IntegerField(allow_null=True)
     grade = serializers.CharField()
     remark = serializers.CharField()
-    subject_position = serializers.IntegerField(allow_null=True)
+    subject_position = serializers.CharField(allow_null=True)
 
 
 class ReportResponseSerializer(serializers.Serializer):
@@ -211,8 +211,8 @@ class ReportResponseSerializer(serializers.Serializer):
     position = serializers.IntegerField(allow_null=True)
     position_formatted = serializers.CharField(allow_null=True)
     subjects = SubjectResultSerializer(many=True)
-    total_score = serializers.FloatField()
-    average_score = serializers.FloatField()
+    total_score = serializers.IntegerField()
+    average_score = serializers.IntegerField()
     overall_grade = serializers.CharField()
     subjects_passed = serializers.IntegerField()
     subjects_failed = serializers.IntegerField()
@@ -281,14 +281,14 @@ class StudentReportView(APIView):
 
         # ── Subjects ────────────────────────────────────────────────
         subjects = []
-        total_score = 0.0
+        total_score = 0
         passed = 0
         failed = 0
         for r in results:
             # FIX: recompute from components instead of trusting r.score,
             # which has been found to be stale/out-of-sync for some rows
             # (see _computed_score() docstring).
-            score = _computed_score(r)
+            score = int(round(_computed_score(r)))
             grade, remark = get_grade_and_remark(score, thresholds)
             subjects.append({
                 "subject": r.subject.name,
@@ -298,7 +298,7 @@ class StudentReportView(APIView):
                 "score": score,
                 "grade": grade,
                 "remark": remark,
-                "subject_position": r.subject_position if show_position else None,
+                "subject_position": format_position(r.subject_position) if show_position and r.subject_position is not None else None,
             })
             total_score += score
             if score >= 50:
@@ -307,7 +307,7 @@ class StudentReportView(APIView):
                 failed += 1
 
         subject_count = len(subjects)
-        average = round(total_score / subject_count, 1) if subject_count else 0.0
+        average = round(total_score / subject_count) if subject_count else 0
         overall_grade = get_overall_grade(average, thresholds)
 
         position = None

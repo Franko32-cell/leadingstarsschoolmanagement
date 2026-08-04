@@ -48,6 +48,7 @@ from .grades import (
     fmt_date,
 )
 from .result_view import assign_subject_positions
+from apps.results.views import format_position
 
 # ---------------------------------------------------------------------------
 # Colours
@@ -320,7 +321,7 @@ class StudentReportPDFView(APIView):
             # FIX: recompute from components instead of trusting r.score,
             # which has been found to be stale/out-of-sync for some rows.
             # See _computed_score() docstring for why.
-            score = _computed_score(r)
+            score = int(round(_computed_score(r)))
             grade, remark = get_grade_and_remark(score, thresholds)
             subjects.append({
                 "name": r.subject.name,
@@ -330,12 +331,12 @@ class StudentReportPDFView(APIView):
                 "score": score,
                 "grade": grade,
                 "remark": remark,
-                "position": r.subject_position if show_position else None,
+                "position": format_position(r.subject_position) if show_position and r.subject_position is not None else None,
             })
             total_score += score
 
         subject_count = len(subjects)
-        average = round(total_score / subject_count, 1) if subject_count else 0.0
+        average = round(total_score / subject_count) if subject_count else 0
         overall_grade = get_overall_grade(average, thresholds)
 
         # ── Class roll count ─────────────────────────────────────────
@@ -490,7 +491,7 @@ def build_pdf(
     info_rows = [
         [
             para(f"<b>NAME:</b> {student.full_name}", 9),
-            para(f"<b>TOTAL MARKS:</b> {round(total_score, 1)}", 9, color=BLUE2),
+            para(f"<b>TOTAL MARKS:</b> {total_score}", 9, color=BLUE2),
         ],
         [
             para(f"<b>STAGE:</b> {class_name}", 9),
