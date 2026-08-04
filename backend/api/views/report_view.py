@@ -263,6 +263,10 @@ class StudentReportView(APIView):
 
         report, has_promo = _fetch_report(student, term, year)
 
+        class_results = []
+        position = None
+        position_formatted = "N/A" if show_position and student.school_class else None
+
         if show_position and student.school_class and results:
             class_results = list(
                 Result.objects
@@ -273,7 +277,7 @@ class StudentReportView(APIView):
                 )
                 .select_related("subject")
             )
-        if class_results:
+            if class_results:
                 assign_subject_positions(class_results)
                 positions = {r.id: r.subject_position for r in class_results}
                 for r in results:
@@ -338,9 +342,6 @@ class StudentReportView(APIView):
         subject_count = len(subjects)
         average = round(total_score / subject_count) if subject_count else 0
         overall_grade = get_overall_grade(average, thresholds)
-
-        position = None
-        position_formatted = "N/A" if show_position and student.school_class else None
 
         # ── Attendance — single aggregate query ───────────────────────
         att = (

@@ -249,6 +249,10 @@ const Reports = () => {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
+  const showSubjectPosition =
+    Boolean(report?.show_position) ||
+    Boolean(report?.subjects?.some((sub) => sub.subject_position != null));
+
   // Per-action error states so one failure doesn't clobber another
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -796,7 +800,7 @@ const Reports = () => {
                         <br />
                         <span className="font-normal opacity-60">/100</span>
                       </th>
-                      {report.show_position && (
+                      {showSubjectPosition && (
                         <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
                           POS.
                         </th>
@@ -835,7 +839,7 @@ const Reports = () => {
                           <td className="px-3 py-2.5 text-center font-mono font-bold text-blue-700 bg-blue-50/50">
                             {fmt(sub.score)}
                           </td>
-                          {report.show_position && (
+                          {showSubjectPosition && (
                             <td className="px-3 py-2.5 text-center text-slate-500 font-semibold">
                               {sub.subject_position ?? "-"}
                             </td>

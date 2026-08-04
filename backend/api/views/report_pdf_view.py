@@ -566,6 +566,8 @@ def build_pdf(
     elements.append(section_label_row(para, "ACADEMIC PERFORMANCE", FULL_W))
     elements.append(Spacer(1, 1 * mm))
 
+    show_subject_position = show_position or any(sub.get("position") is not None for sub in subjects)
+
     subj_header = [
         para(" SUBJECT", 8, bold=True, color=WHITE),
         para("RE-OPEN\n& RDA 20%", 7, bold=True, color=WHITE, align=TA_CENTER),
@@ -575,12 +577,12 @@ def build_pdf(
         para("GRADE", 7, bold=True, color=WHITE, align=TA_CENTER),
         para("REMARK", 7, bold=True, color=WHITE, align=TA_CENTER),
     ]
-    if show_position:
+    if show_subject_position:
         subj_header.insert(5, para("POS.", 7, bold=True, color=WHITE, align=TA_CENTER))
 
     col_widths = (
         [50 * mm, 17 * mm, 17 * mm, 17 * mm, 17 * mm, 13 * mm, 13 * mm, 30 * mm]
-        if show_position else
+        if show_subject_position else
         [54 * mm, 19 * mm, 19 * mm, 19 * mm, 19 * mm, 14 * mm, 36 * mm]
     )
 
@@ -596,19 +598,7 @@ def build_pdf(
             para(f'<b>{sub["grade"]}</b>', 8, color=BLUE2, align=TA_CENTER),
             para(sub["remark"], 7, align=TA_CENTER),
         ]
-        if show_position:
-            row.insert(5, para(str(sub["position"] or "-"), 8, align=TA_CENTER))
-        subj_rows.append(row)
-
-    subj_table = Table(subj_rows, colWidths=col_widths)
-    subj_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), BLUE),
-        ("TOPPADDING", (0, 0), (-1, 0), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
-        ("GRID", (0, 0), (-1, -1), 0.4, DIVIDER),
-        ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
-        ("TOPPADDING", (0, 1), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
+            if show_subject_position:
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, MGRAY]),
