@@ -598,14 +598,22 @@ def build_pdf(
             para(f'<b>{sub["grade"]}</b>', 8, color=BLUE2, align=TA_CENTER),
             para(sub["remark"], 7, align=TA_CENTER),
         ]
-            if show_subject_position:
+        if show_subject_position:
+            row.insert(5, para(sub["position"] or "-", 8, align=TA_CENTER))
+        subj_rows.append(row)
+
+    subj_table = Table(subj_rows, colWidths=col_widths, repeatRows=1)
+    subj_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), BLUE),
+        ("GRID", (0, 0), (-1, -1), 0.3, DIVIDER),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, MGRAY]),
         ("BACKGROUND", (4, 1), (4, -1), colors.HexColor("#f0f9ff")),
     ]))
     elements.append(subj_table)
-    elements.append(Spacer(1, 4 * mm))
 
     # ── Attendance + Remarks ───────────────────────────────────────
     att_label = section_label_row(para, "ATTENDANCE & CONDUCT", 90 * mm)
