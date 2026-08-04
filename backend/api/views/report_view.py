@@ -273,11 +273,40 @@ class StudentReportView(APIView):
                 )
                 .select_related("subject")
             )
-            if class_results:
+        if class_results:
                 assign_subject_positions(class_results)
                 positions = {r.id: r.subject_position for r in class_results}
                 for r in results:
                     r.subject_position = positions.get(r.id)
+
+                # Overall class position — ranked by each student's average,
+                # computed the same way as this student's own `average` below
+                # (int(round(_computed_score)) per subject, then averaged),
+                # so a student's own report and their class rank never
+                # disagree with each other. Uses competition ranking, same
+                # tie convention as recompute_subject_positions().
+                totals: dict[int, list[int]] = {}
+                for r in class_results:
+                    totals.setdefault(r.student_id, []).append(int(round(_computed_score(r))))
+
+                averages = [
+                    (sid, round(sum(scores) / len(scores)))
+                    for sid, scores in totals.items() if scores
+                ]
+                averages.sort(key=lambda pair: (-pair[1], pair[0]))
+
+                current_rank = 0
+                prev_avg = object()
+                class_positions = {}
+                for i, (sid, avg) in enumerate(averages):
+                    if avg != prev_avg:
+                        current_rank = i + 1
+                        prev_avg = avg
+                    class_positions[sid] = current_rank
+
+                position = class_positions.get(student.id)
+                if position is not None:
+                    position_formatted = format_position(position)
 
         # ── Subjects ────────────────────────────────────────────────
         subjects = []

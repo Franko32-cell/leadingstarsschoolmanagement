@@ -1,5 +1,6 @@
-"""pdf_view.py
-Drop-in replacement for: backend/api/views/pdf_view.py
+"""
+report_pdf_view.py
+backend/api/views/report_pdf_view.py
 """
 
 import io
@@ -301,6 +302,7 @@ class StudentReportPDFView(APIView):
         subjects = []
         total_score = 0.0
 
+        class_results = []
         if show_position and student.school_class and results:
             class_results = list(
                 Result.objects
@@ -339,13 +341,43 @@ class StudentReportPDFView(APIView):
         average = round(total_score / subject_count) if subject_count else 0
         overall_grade = get_overall_grade(average, thresholds)
 
-        # ── Class roll count ─────────────────────────────────────────
-        # NOTE: this student's individual overall rank/position has been
-        # intentionally removed from the PDF (only subject-level positions
-        # are shown now). We still show "Pupils on Roll" without needing
-        # rank_students()'s score aggregation.
+        # ── Class roll count + overall position ─────────────────────────
+        # Overall class position was previously hardcoded to "removed" here
+        # (position=None). Restored below: ranked by each student's average,
+        # computed the same way as this student's own `average` above
+        # (int(round(_computed_score)) per subject, then averaged), so the
+        # PDF's own average and its rank never disagree. Uses competition
+        # ranking — same tie convention as recompute_subject_positions()/
+        # assign_subject_positions().
+        position = None
+        position_formatted = "N/A"
+
         if show_position and student.school_class:
             out_of = Student.objects.filter(school_class=student.school_class).count()
+
+            if class_results:
+                totals: dict[int, list[int]] = {}
+                for r in class_results:
+                    totals.setdefault(r.student_id, []).append(int(round(_computed_score(r))))
+
+                averages = [
+                    (sid, round(sum(scores) / len(scores)))
+                    for sid, scores in totals.items() if scores
+                ]
+                averages.sort(key=lambda pair: (-pair[1], pair[0]))
+
+                current_rank = 0
+                prev_avg = object()
+                class_positions = {}
+                for i, (sid, avg) in enumerate(averages):
+                    if avg != prev_avg:
+                        current_rank = i + 1
+                        prev_avg = avg
+                    class_positions[sid] = current_rank
+
+                position = class_positions.get(student.id)
+                if position is not None:
+                    position_formatted = format_position(position)
         else:
             out_of = 0
 
@@ -376,6 +408,7 @@ class StudentReportPDFView(APIView):
             overall_grade=overall_grade,
             total_score=total_score,
             out_of=out_of,
+            position_formatted=position_formatted,
             present_days=present_days,
             total_days=total_days,
             att_percent=att_percent,
@@ -415,7 +448,7 @@ class StudentReportPDFView(APIView):
 def build_pdf(
     student, subjects, average, overall_grade, total_score, out_of,
     present_days, total_days, att_percent, report, term, year, level,
-    show_position, school_name, school_motto, interp_rows,
+    show_position, position_formatted, school_name, school_motto, interp_rows,
     vacation_date, resumption_date, promotion_status, next_class_name,
 ):
     """Build the complete PDF and return (BytesIO buffer, size)"""
@@ -486,8 +519,6 @@ def build_pdf(
     promotion_label = promotion_status if promotion_status else "N/A"
     next_class_label = next_class_name if next_class_name else "N/A"
 
-    # NOTE: overall POSITION row removed — only subject-level positions
-    # (the "POS." column in the subject table below) are shown now.
     info_rows = [
         [
             para(f"<b>NAME:</b> {student.full_name}", 9),
@@ -500,6 +531,13 @@ def build_pdf(
         [
             para(f"<b>PUPILS ON ROLL:</b> {out_of or '-'}", 9),
             para(f"<b>TERM:</b> {TERM_LABELS.get(term, term)}", 9),
+        ],
+        [
+            para(
+                f"<b>POSITION:</b> {position_formatted if show_position else 'N/A'}",
+                9, color=BLUE2 if show_position and position_formatted != "N/A" else DGRAY,
+            ),
+            para("", 9),
         ],
         [
             para(f"<b>ADMISSION NO:</b> {student.admission_number}", 9),
