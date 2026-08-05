@@ -1,6 +1,22 @@
 """report_view.py
 Drop-in replacement for: backend/api/views/report_view.py
+
+Fixes in this pass (mirrors report_pdf_view.py):
+  1. `school_class` in the response now reflects the class the student was
+     actually in for this term/year's results, not their current
+     (possibly since-promoted) class — see school_class_name below.
+  2. `position` / `position_formatted` are still computed and returned
+     (kept for any other consumer / for backward compatibility), but the
+     Reports.jsx frontend no longer renders the overall-position tile.
+     Subject-level `subject_position` is untouched.
+  3. `out_of` ("pupils on roll") no longer over-counts a class when a
+     student has a stray duplicate Result row left over under a different
+     school_class_id — a student is only counted toward a class if that
+     class is where the MAJORITY of their own subject rows for the term
+     actually sit.
 """
+
+from collections import Counter
 
 from django.conf import settings
 from django.db import ProgrammingError, connection
@@ -258,10 +274,33 @@ class StudentReportView(APIView):
         results = list(
             Result.objects
             .filter(student=student, term=term, year=year)
-            .select_related("subject")
+            .select_related("subject", "school_class")
         )
 
         report, has_promo = _fetch_report(student, term, year)
+
+        # ── Class shown on the report (school_class) ─────────────────
+        # FIX: use the class the student was actually in when these
+        # results were recorded, NOT student.school_class, which reflects
+        # the student's CURRENT class. After a promotion, an older term's
+        # report would otherwise show the student's new class, making it
+        # look like the student had been "promoted into the same class".
+        # Falls back to the current class only when there are no results
+        # at all for this term/year.
+        own_class_counts = Counter(
+            r.school_class_id for r in results if r.school_class_id is not None
+        )
+        term_school_class = None
+        if own_class_counts:
+            target_class_id = own_class_counts.most_common(1)[0][0]
+            term_school_class = next(
+                (r.school_class for r in results if r.school_class_id == target_class_id),
+                None,
+            )
+        school_class_name = (
+            term_school_class.name if term_school_class
+            else (student.school_class.name if student.school_class else None)
+        )
 
         class_results = []
         position = None
@@ -297,6 +336,8 @@ class StudentReportView(APIView):
                 # so a student's own report and their class rank never
                 # disagree with each other. Uses competition ranking, same
                 # tie convention as recompute_subject_positions().
+                # NOTE: still computed for API completeness/back-compat, but
+                # the frontend no longer displays it — see Reports.jsx.
                 totals: dict[int, list[int]] = {}
                 for r in class_results:
                     totals.setdefault(r.student_id, []).append(int(round(_computed_score(r))))
@@ -364,19 +405,28 @@ class StudentReportView(APIView):
         present_days = att["present"] or 0
         att_percent = round((present_days / total_days) * 100) if total_days else 0
 
-        # ── Class roll count ───────────────────────────────────────────
-        # NOTE: this student's individual overall rank/position has been
-        # intentionally removed from the report (only subject-level
-        # positions are shown now). We still report the class size
-        # ("out of N") without needing rank_students()'s score aggregation.
+        # ── Class roll count ("out of N") ──────────────────────────────
         if show_position and student.school_class:
-            # See report_pdf_view.py — count students actually present in
-            # class_results (the class they were in for this term/year)
-            # rather than the student's current roster, which can differ
-            # after an end-of-term promotion. Falls back to the current
-            # roster only when there are no results to count from.
+            # FIX: previously counted a student toward this class's roll
+            # if they had ANY Result row tagged with this school_class_id
+            # — which over-counts when a student has a stray duplicate row
+            # left over under the wrong class (see _computed_score()'s
+            # docstring for how such duplicates arise). Now a student is
+            # only counted toward a class if that class is where the
+            # MAJORITY of their OWN subject rows for this term/year
+            # actually sit. Falls back to the current roster only when
+            # there are no results to count from at all.
             if class_results:
-                out_of = len({r.student_id for r in class_results})
+                per_student_classes: dict[int, Counter] = {}
+                for r in class_results:
+                    per_student_classes.setdefault(r.student_id, Counter())[r.school_class_id] += 1
+
+                target_class_id = own_class_counts.most_common(1)[0][0] if own_class_counts else None
+                out_of = sum(
+                    1 for sid, counts in per_student_classes.items()
+                    if target_class_id is not None
+                    and counts.most_common(1)[0][0] == target_class_id
+                )
             else:
                 out_of = Student.objects.filter(school_class=student.school_class).count()
         else:
@@ -394,7 +444,7 @@ class StudentReportView(APIView):
         payload = {
             "student": student.full_name,
             "admission_number": student.admission_number,
-            "school_class": student.school_class.name if student.school_class else None,
+            "school_class": school_class_name,
             "photo": student.photo.url if student.photo else None,
             "term": term,
             "year": year,

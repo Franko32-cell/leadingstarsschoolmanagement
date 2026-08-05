@@ -2,11 +2,21 @@
  * Reports.jsx
  * Drop-in replacement for: frontend/admin-dashboard/src/pages/Reports.jsx
  *
- * Fixes vs previous (broken) version:
+ * Changes in this pass:
+ *  - The overall class "Position" tile has been removed from the stats
+ *    strip (grid now shows 3 tiles instead of 4: Total Marks, Average,
+ *    Overall Grade). Subject-level positions (the POS. column in the
+ *    subject results table) are completely untouched — only the overall
+ *    class-rank tile is gone. report.position / report.position_formatted
+ *    are still returned by the API and simply no longer rendered here.
+ *
+ * (All previous fixes/behavior retained — see original header below.)
+ *
+ * Previous fixes vs earlier (broken) version:
  *  - File is now syntactically complete (previous version was truncated mid-JSX,
  *    which caused the Vite/esbuild "Unexpected end of file" build error)
  *
- * Improvements in this pass:
+ * Previous improvements:
  *  - "Save Remarks" button disabled when there are no unsaved changes (prevents
  *    redundant API calls / accidental re-saves)
  *  - Promotion status buttons reset next_class when switching away from
@@ -722,7 +732,10 @@ const Reports = () => {
             </div>
 
             {/* ─ Stats strip ─ */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-slate-100 border-b border-slate-100">
+            {/* FIX: overall class "Position" tile removed — now 3 tiles
+                instead of 4. Subject-level positions (POS. column in the
+                subject table below) are unaffected. */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 divide-x divide-slate-100 border-b border-slate-100">
               {[
                 {
                   label: "Total Marks",
@@ -733,19 +746,6 @@ const Reports = () => {
                   label: "Average",
                   value: fmt(report.average_score),
                   cls: avgColor,
-                },
-                {
-                  label: "Position",
-                  value: report.position_formatted === "N/A"
-                    ? "N/A"
-                    : report.show_position
-                    ? report.position_formatted
-                      ? `${report.position_formatted} / ${report.out_of}`
-                      : report.position != null
-                      ? `${report.position} / ${report.out_of}`
-                      : "-"
-                    : "N/A",
-                  cls: "text-blue-600",
                 },
                 {
                   label: "Overall Grade",

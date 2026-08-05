@@ -1,12 +1,32 @@
 """
 report_pdf_view.py
 backend/api/views/report_pdf_view.py
+
+Fixes in this pass (see accompanying notes):
+  1. STAGE now shows the class the student was actually in for this
+     term/year's results, not their current (possibly since-promoted)
+     class. Previously this always read student.school_class, which is
+     live/current — so an old report for a promoted student would show
+     "STAGE: <new class>" and "NEXT CLASS: <same new class>", making it
+     look like the student was promoted into the same class they were
+     already in.
+  2. Overall class POSITION removed from the visible report (subject-level
+     POS. column is untouched). position/position_formatted are still
+     computed and passed through internally in case anything else needs
+     them later — only the printed row is gone.
+  3. "PUPILS ON ROLL" (out_of) no longer over-counts a class when a
+     student has stray duplicate Result rows left over under a different
+     school_class_id (e.g. an uncleaned mid-term class change). A student
+     is now only counted toward a class's roll if that class is where the
+     MAJORITY of their subject rows for the term actually sit, rather than
+     counting them if they merely have any row under that class id.
 """
 
 import io
 import os
 import re
 import threading
+from collections import Counter
 from io import BytesIO
 from urllib.parse import quote
 
@@ -273,7 +293,7 @@ class StudentReportPDFView(APIView):
         results = (
             Result.objects
             .filter(student=student, term=term, year=year)
-            .select_related("subject")
+            .select_related("subject", "school_class")
         )
 
         report, has_promo = _fetch_report(student, term, year)
@@ -298,12 +318,37 @@ class StudentReportPDFView(APIView):
         present_days = att["present"] or 0
         att_percent = round((present_days / total_days) * 100) if total_days else 0
 
+        # ── Class shown on the report (STAGE) ───────────────────────────
+        # FIX: use the class the student was actually in when these
+        # results were recorded, NOT student.school_class, which reflects
+        # the student's CURRENT class. After a promotion, an older term's
+        # report would otherwise show the student's new class as "STAGE"
+        # (and, since NEXT CLASS also reflects the new class, it looked
+        # like the student had been "promoted into the same class").
+        # Falls back to the current class only when there are no results
+        # at all for this term/year (nothing else to go on).
+        results_list = list(results)
+        own_class_counts = Counter(
+            r.school_class_id for r in results_list if r.school_class_id is not None
+        )
+        term_school_class = None
+        if own_class_counts:
+            target_class_id = own_class_counts.most_common(1)[0][0]
+            term_school_class = next(
+                (r.school_class for r in results_list if r.school_class_id == target_class_id),
+                None,
+            )
+        class_name = (
+            term_school_class.name if term_school_class
+            else (student.school_class.name if student.school_class else "-")
+        )
+
         # ── Subjects ─────────────────────────────────────────────────
         subjects = []
         total_score = 0.0
 
         class_results = []
-        if show_position and results:
+        if show_position and results_list:
             # Group by the school_class each result was actually recorded
             # under for this term/year — NOT student.school_class, which
             # reflects the student's CURRENT class. After an end-of-term
@@ -313,7 +358,7 @@ class StudentReportPDFView(APIView):
             # class_results, dropping subject positions for every
             # promoted student.
             result_class_ids = {
-                r.school_class_id for r in results if r.school_class_id is not None
+                r.school_class_id for r in results_list if r.school_class_id is not None
             }
             if result_class_ids:
                 class_results = list(
@@ -328,10 +373,10 @@ class StudentReportPDFView(APIView):
             if class_results:
                 assign_subject_positions(class_results)
                 positions = {r.id: r.subject_position for r in class_results}
-                for r in results:
+                for r in results_list:
                     r.subject_position = positions.get(r.id)
 
-        for r in results:
+        for r in results_list:
             # FIX: recompute from components instead of trusting r.score,
             # which has been found to be stale/out-of-sync for some rows.
             # See _computed_score() docstring for why.
@@ -354,24 +399,34 @@ class StudentReportPDFView(APIView):
         overall_grade = get_overall_grade(average, thresholds)
 
         # ── Class roll count + overall position ─────────────────────────
-        # Overall class position was previously hardcoded to "removed" here
-        # (position=None). Restored below: ranked by each student's average,
-        # computed the same way as this student's own `average` above
-        # (int(round(_computed_score)) per subject, then averaged), so the
-        # PDF's own average and its rank never disagree. Uses competition
-        # ranking — same tie convention as recompute_subject_positions()/
-        # assign_subject_positions().
+        # Overall class position is computed here for internal use, but is
+        # intentionally no longer printed on the report — see build_pdf(),
+        # where the POSITION row has been removed from info_rows. Only the
+        # subject-level POS. column is still shown.
         position = None
         position_formatted = "N/A"
 
         if show_position and student.school_class:
-            # Prefer the actual headcount of students who have results in
-            # class_results (the class they were in for this term/year) —
-            # this can differ from their CURRENT class roster after an
-            # end-of-term promotion. Falls back to the current roster only
-            # when there are no results to count from.
+            # ── "Pupils on roll" (out_of) ───────────────────────────────
+            # FIX: previously counted a student toward this class's roll
+            # if they had ANY Result row tagged with this school_class_id.
+            # That over-counts when a student has a stray duplicate row
+            # left over under the wrong class (e.g. an uncleaned mid-term
+            # class change) — see _computed_score()'s docstring for why
+            # such duplicates can exist. Now a student is only counted
+            # toward a class if that class is where the MAJORITY of their
+            # OWN subject rows for this term/year actually sit.
             if class_results:
-                out_of = len({r.student_id for r in class_results})
+                per_student_classes: dict[int, Counter] = {}
+                for r in class_results:
+                    per_student_classes.setdefault(r.student_id, Counter())[r.school_class_id] += 1
+
+                target_class_id = own_class_counts.most_common(1)[0][0] if own_class_counts else None
+                out_of = sum(
+                    1 for sid, counts in per_student_classes.items()
+                    if target_class_id is not None
+                    and counts.most_common(1)[0][0] == target_class_id
+                )
             else:
                 out_of = Student.objects.filter(school_class=student.school_class).count()
 
@@ -423,6 +478,7 @@ class StudentReportPDFView(APIView):
         # ── Build PDF ────────────────────────────────────────────────
         buffer, pdf_size = build_pdf(
             student=student,
+            class_name=class_name,
             subjects=subjects,
             average=average,
             overall_grade=overall_grade,
@@ -466,7 +522,7 @@ class StudentReportPDFView(APIView):
 # ---------------------------------------------------------------------------
 
 def build_pdf(
-    student, subjects, average, overall_grade, total_score, out_of,
+    student, class_name, subjects, average, overall_grade, total_score, out_of,
     present_days, total_days, att_percent, report, term, year, level,
     show_position, position_formatted, school_name, school_motto, interp_rows,
     vacation_date, resumption_date, promotion_status, next_class_name,
@@ -533,12 +589,20 @@ def build_pdf(
     elements.append(Spacer(1, 4 * mm))
 
     # ── Student info ────────────────────────────────────────────────
-    class_name = student.school_class.name if student.school_class else "-"
+    # NOTE: class_name is now passed in from the caller — it reflects the
+    # class the student was actually in for THIS term/year's results, not
+    # their current (possibly since-promoted) class. Do not recompute it
+    # here from student.school_class.
     avg_color = GREEN if average >= 60 else (GOLD if average >= 45 else RED)
 
     promotion_label = promotion_status if promotion_status else "N/A"
     next_class_label = next_class_name if next_class_name else "N/A"
 
+    # FIX: overall class POSITION row removed from the printed report.
+    # Subject-level positions (POS. column in the subject table below)
+    # are unaffected. position_formatted is still accepted as a parameter
+    # for now in case other callers rely on the signature, but it is no
+    # longer rendered anywhere in this function.
     info_rows = [
         [
             para(f"<b>NAME:</b> {student.full_name}", 9),
@@ -551,13 +615,6 @@ def build_pdf(
         [
             para(f"<b>PUPILS ON ROLL:</b> {out_of or '-'}", 9),
             para(f"<b>TERM:</b> {TERM_LABELS.get(term, term)}", 9),
-        ],
-        [
-            para(
-                f"<b>POSITION:</b> {position_formatted if show_position else 'N/A'}",
-                9, color=BLUE2 if show_position and position_formatted != "N/A" else DGRAY,
-            ),
-            para("", 9),
         ],
         [
             para(f"<b>ADMISSION NO:</b> {student.admission_number}", 9),
