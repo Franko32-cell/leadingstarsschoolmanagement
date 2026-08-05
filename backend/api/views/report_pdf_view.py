@@ -726,12 +726,12 @@ def build_pdf(
             ])
         if vacation_date:
             att_rows.append([
-                para("Vacation:", 8, bold=True, color=GREEN),
+                para("Vacation Date:", 8, bold=True, color=GREEN),
                 para(fmt_date(vacation_date), 8, color=GREEN),
             ])
         if resumption_date:
             att_rows.append([
-                para("Resumes:", 8, bold=True, color=GREEN),
+                para("Resumption Date:", 8, bold=True, color=GREEN),
                 para(fmt_date(resumption_date), 8, color=GREEN),
             ])
 
