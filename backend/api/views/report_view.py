@@ -303,6 +303,7 @@ class StudentReportView(APIView):
         )
 
         class_results = []
+        valid_student_ids: set[int] = set()
         position = None
         position_formatted = "N/A" if show_position and student.school_class else None
 
@@ -314,8 +315,9 @@ class StudentReportView(APIView):
             result_class_ids = {
                 r.school_class_id for r in results if r.school_class_id is not None
             }
+            raw_class_results = []
             if result_class_ids:
-                class_results = list(
+                raw_class_results = list(
                     Result.objects
                     .filter(
                         school_class_id__in=result_class_ids,
@@ -324,6 +326,38 @@ class StudentReportView(APIView):
                     )
                     .select_related("subject")
                 )
+
+            if raw_class_results:
+                # FIX: a student can have a handful of stray Result rows
+                # tagged to a class they don't really belong to anymore.
+                # Simply filtering by school_class_id (above) pulls in
+                # EVERY such student, even with only 1-2 rows here, which
+                # inflates "pupils on roll" and pollutes subject-position
+                # rankings with students who don't really belong. Fetch
+                # each candidate's FULL term/year row set and only keep
+                # students whose TRUE majority class — across ALL their
+                # subjects, not just the ones matching this class_id —
+                # really is this class.
+                candidate_student_ids = {r.student_id for r in raw_class_results}
+                full_candidate_rows = Result.objects.filter(
+                    student_id__in=candidate_student_ids, term=term, year=year,
+                ).values("student_id", "school_class_id")
+
+                candidate_class_counts: dict[int, Counter] = {}
+                for row in full_candidate_rows:
+                    candidate_class_counts.setdefault(
+                        row["student_id"], Counter()
+                    )[row["school_class_id"]] += 1
+
+                target_class_id = own_class_counts.most_common(1)[0][0] if own_class_counts else None
+                valid_student_ids = {
+                    sid for sid, counts in candidate_class_counts.items()
+                    if target_class_id is not None
+                    and counts.most_common(1)[0][0] == target_class_id
+                }
+
+                class_results = [r for r in raw_class_results if r.student_id in valid_student_ids]
+
             if class_results:
                 assign_subject_positions(class_results)
                 positions = {r.id: r.subject_position for r in class_results}
@@ -406,31 +440,15 @@ class StudentReportView(APIView):
         att_percent = round((present_days / total_days) * 100) if total_days else 0
 
         # ── Class roll count ("out of N") ──────────────────────────────
-        if show_position and student.school_class:
-            # FIX: previously counted a student toward this class's roll
-            # if they had ANY Result row tagged with this school_class_id
-            # — which over-counts when a student has a stray duplicate row
-            # left over under the wrong class (see _computed_score()'s
-            # docstring for how such duplicates arise). Now a student is
-            # only counted toward a class if that class is where the
-            # MAJORITY of their OWN subject rows for this term/year
-            # actually sit. Falls back to the current roster only when
-            # there are no results to count from at all.
-            if class_results:
-                per_student_classes: dict[int, Counter] = {}
-                for r in class_results:
-                    per_student_classes.setdefault(r.student_id, Counter())[r.school_class_id] += 1
-
-                target_class_id = own_class_counts.most_common(1)[0][0] if own_class_counts else None
-                out_of = sum(
-                    1 for sid, counts in per_student_classes.items()
-                    if target_class_id is not None
-                    and counts.most_common(1)[0][0] == target_class_id
-                )
-            else:
-                out_of = Student.objects.filter(school_class=student.school_class).count()
-        else:
-            out_of = None
+        # FIX: this is enrollment headcount, a different question entirely
+        # from "how many students have Result rows this term" — Result
+        # data is inherently partial mid-term and can be mistagged to the
+        # wrong class by data-entry errors unrelated to actual roll size.
+        # Use the roster directly instead of deriving it from class_results.
+        out_of = (
+            Student.objects.filter(school_class=student.school_class).count()
+            if show_position and student.school_class else None
+        )
 
         # ── Promotion fields ───────────────────────────────────────
         promotion_status = None
