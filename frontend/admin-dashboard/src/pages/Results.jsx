@@ -10,7 +10,15 @@ const TERMS = [
   { value: "term3", label: "Term 3" },
 ];
 
-const CURRENT_TERM = "term3";
+// FIX: was "term3" — stale after the school moved on to Term 1 2026.
+// NOTE: this constant ONLY controls (a) the initial dropdown selection on
+// page load and (b) the cosmetic "(current)" label / green header badge.
+// It does NOT restrict which term can be selected, edited, or saved —
+// the TERMS dropdown always lists all three terms, and submitResults()/
+// the bulk-save API call send whatever term/year is currently selected
+// with no gating at all. Editing a past term (e.g. Term 3 2026) has
+// always been fully supported; only the default/"current" label was wrong.
+const CURRENT_TERM = "term1";
 const CURRENT_YEAR = 2026;
 const YEARS = [2026, 2025, 2024, 2023, 2022];
 
@@ -1577,7 +1585,7 @@ const Results = () => {
         </div>
         <h1>Results Entry</h1>
         {isCurrentTermYear && (
-          <span className="res-header-term-badge" aria-label="Current term: Term 3, 2026">● TERM 3 · 2026</span>
+          <span className="res-header-term-badge" aria-label="Current term: Term 1, 2026">● TERM 1 · 2026</span>
         )}
         <div className="res-header-context" aria-label="Current context">
           {selectedClassName   && <span className="res-header-ctx-pill">{selectedClassName}</span>}
