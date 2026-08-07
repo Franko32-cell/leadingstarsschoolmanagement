@@ -26,7 +26,7 @@ const Announcements = lazy(() => import("./pages/Announcements"));
 const Fees = lazy(() => import("./pages/Fees"));
 const Accounts = lazy(() => import("./pages/Accounts"));
 const Accounting = lazy(() => import("./pages/Accounting"));
-const PettyCash = lazy(() => import("./pages/admin/PettyCash")); 
+const PettyCash = lazy(() => import("./pages/PettyCash"));
 const Admissions = lazy(() => import("./pages/Admissions"));
 const Subjects = lazy(() => import("./pages/Subjects"));
 const Reports = lazy(() => import("./pages/Reports"));

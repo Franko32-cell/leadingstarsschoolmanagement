@@ -14,7 +14,7 @@ import {
   getPettyCashMonthlySummary,
   exportPettyCashDailyCsv,
   exportPettyCashMonthlyCsv,
-} from "../../services/pettyCashService";
+} from "../services/pettyCashService";
 
 // NOTE: I don't have your accounts list endpoint's shape confirmed here,
 // so account pickers below are plain text inputs for the account ID.
