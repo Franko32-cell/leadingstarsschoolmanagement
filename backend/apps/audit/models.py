@@ -54,6 +54,7 @@ class AuditLog(models.Model):
         ADMISSIONS = "admissions", "Admissions"
         ANNOUNCEMENTS = "announcements", "Announcements"
         ACCOUNTS = "accounts", "Accounts"
+        ACCOUNTING = "accounting", "Accounting"
         NOTIFICATIONS = "notifications", "Notifications"
         SYSTEM = "system", "System"
 

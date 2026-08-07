@@ -46,3 +46,34 @@ class JournalEntryAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+# ─────────────────────────────────────────────────────────────────────────
+# PETTY CASH — append everything below to apps/accounting/admin.py
+# (adjust `from .models import ...` to include PettyCashFloat, PettyCashTransaction)
+# ─────────────────────────────────────────────────────────────────────────
+
+from django.contrib import admin
+
+from .models import PettyCashFloat, PettyCashTransaction
+
+
+@admin.register(PettyCashFloat)
+class PettyCashFloatAdmin(admin.ModelAdmin):
+    list_display = ["name", "custodian", "account", "status", "opening_balance", "created_at"]
+    list_filter = ["status"]
+    search_fields = ["name", "custodian__username", "account__code"]
+    readonly_fields = ["created_at", "closed_at"]
+
+
+@admin.register(PettyCashTransaction)
+class PettyCashTransactionAdmin(admin.ModelAdmin):
+    list_display = ["id", "float", "transaction_type", "status", "date", "amount", "requested_by"]
+    list_filter = ["transaction_type", "status", "float"]
+    search_fields = ["description", "float__name"]
+    readonly_fields = ["journal_entry", "created_at", "submitted_at", "approved_at", "paid_at"]
+    # Lifecycle is state-machine driven via the service layer (approve/reject/pay) —
+    # block manual status edits here so nothing bypasses the audit trail or posts
+    # an inconsistent journal entry.
+    def get_readonly_fields(self, request, obj=None):
+        if obj is not None:
+            return self.readonly_fields + ["status", "float", "transaction_type", "amount"]
+        return self.readonly_fields

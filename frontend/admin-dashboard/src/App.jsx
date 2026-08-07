@@ -26,6 +26,7 @@ const Announcements = lazy(() => import("./pages/Announcements"));
 const Fees = lazy(() => import("./pages/Fees"));
 const Accounts = lazy(() => import("./pages/Accounts"));
 const Accounting = lazy(() => import("./pages/Accounting"));
+const PettyCash = lazy(() => import("./pages/admin/PettyCash")); 
 const Admissions = lazy(() => import("./pages/Admissions"));
 const Subjects = lazy(() => import("./pages/Subjects"));
 const Reports = lazy(() => import("./pages/Reports"));
@@ -107,6 +108,7 @@ function App() {
               <Route path="fees" element={<Fees />} />
               <Route path="accounts" element={<Accounts />} />
               <Route path="accounting" element={<Accounting />} />
+              <Route path="accounting/petty-cash" element={<PettyCash />} />
               <Route path="reports" element={<Reports />} />
               <Route path="admin-approvals" element={<AdminApprovals />} />
               <Route path="settings" element={<AdminSettings />} />
