@@ -153,11 +153,37 @@ class ResultViewSet(ModelViewSet):
         subject      = params.get("subject")
         year         = params.get("year")
 
-        if student:      qs = qs.filter(student_id=student)
-        if school_class: qs = qs.filter(school_class_id=school_class)
-        if term:         qs = qs.filter(term=term)
-        if subject:      qs = qs.filter(subject_id=subject)
-        if year:         qs = qs.filter(year=year)
+        if student: qs = qs.filter(student_id=student)
+
+        if school_class:
+            # FIX: was `qs.filter(school_class_id=school_class)`, which
+            # filters on Result.school_class — a value that's only set at
+            # save time and can go stale (e.g. a student is promoted/moved
+            # to a new class after their result was saved; the model's
+            # unique_together doesn't even include school_class, see
+            # _computed_score() docstring above).
+            #
+            # bulk_save()'s update_or_create() intentionally keys on
+            # student + subject + term + year, NOT school_class — meaning
+            # school_class is not actually part of a Result's identity.
+            # Filtering GET-list by the stale Result.school_class caused
+            # existing rows to silently disappear from "Enter Results"
+            # whenever a student's current class no longer matched what
+            # was stored on the row: the frontend then rendered empty
+            # score fields as if nothing had ever been saved, when a row
+            # existed all along and bulk_save would have found and
+            # updated it.
+            #
+            # Filtering on the student's CURRENT class instead keeps this
+            # query consistent with how bulk_save identifies "this
+            # student's result," so previously-saved scores reliably show
+            # up for observation/editing whenever the matching
+            # class/subject/term/year is selected.
+            qs = qs.filter(student__school_class_id=school_class)
+
+        if term:    qs = qs.filter(term=term)
+        if subject: qs = qs.filter(subject_id=subject)
+        if year:    qs = qs.filter(year=year)
         return qs
 
     def perform_create(self, serializer):
@@ -371,8 +397,17 @@ class ResultViewSet(ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # FIX: was `school_class_id=school_class` — filtering on Result's
+        # own (denormalized, save-time-only) school_class field. Same issue
+        # as get_queryset() above: if a student moved classes after a
+        # result was saved, that row's stored school_class goes stale and
+        # the row would silently drop out of this summary even though it's
+        # still that student's live, editable result. Filtering on the
+        # student's CURRENT class keeps the class summary consistent with
+        # both the "Enter Results" list and bulk_save's own lookup key
+        # (student + subject + term + year, not school_class).
         qs = Result.objects.filter(
-            school_class_id=school_class,
+            student__school_class_id=school_class,
             term=term,
         ).select_related("student", "student__school_class", "subject")
 
