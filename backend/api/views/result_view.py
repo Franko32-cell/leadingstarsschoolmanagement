@@ -72,12 +72,24 @@ def recompute_subject_positions(subject_id, term, school_class_id, year):
 
     Ranks on the live computed score (reopen+ca+exams) rather than the
     persisted `score` column — see _computed_score() docstring.
+
+    IMPORTANT: `school_class_id` here should be the student's CURRENT class
+    (student.school_class_id), not each row's stored Result.school_class_id.
+    We filter on `student__school_class_id` rather than the row's own
+    `school_class_id` field so that a student who has been moved/promoted
+    to a new class is ranked against their actual current classmates —
+    not against whichever stale class value happens to be stored on their
+    row. Using the row's own field here previously caused two students
+    both currently in the same class to be split into different ranking
+    groups whenever their stored Result.school_class_id values disagreed,
+    producing subject ranks that didn't match who was actually shown
+    together in the class summary/report.
     """
     results = list(
         Result.objects.filter(
             subject_id=subject_id,
             term=term,
-            school_class_id=school_class_id,
+            student__school_class_id=school_class_id,
             year=year,
         )
     )
@@ -97,10 +109,21 @@ def recompute_subject_positions(subject_id, term, school_class_id, year):
 
 
 def assign_subject_positions(results: list[Result]) -> None:
-    """Assign live subject positions for an in-memory list of Result rows."""
+    """
+    Assign live subject positions for an in-memory list of Result rows.
+
+    Groups by the student's CURRENT class (result.student.school_class_id),
+    not result.school_class_id. The caller (summary()) fetches rows by the
+    student's current class already; grouping here by the row's own stale
+    school_class_id could split students who are shown together in the same
+    class summary into different ranking groups, producing subject ranks
+    that don't line up with the roster actually on screen. Callers should
+    ensure `student` is select_related so this doesn't trigger N+1 queries.
+    """
     groups: dict = {}
     for result in results:
-        key = (result.subject_id, result.term, result.school_class_id, result.year)
+        class_id = result.student.school_class_id if result.student else result.school_class_id
+        key = (result.subject_id, result.term, class_id, result.year)
         groups.setdefault(key, []).append(result)
 
     for group in groups.values():
@@ -188,8 +211,10 @@ class ResultViewSet(ModelViewSet):
 
     def perform_create(self, serializer):
         instance = serializer.save()
+        # Rank against the student's CURRENT class, not instance.school_class_id
+        # (which is just whatever was saved on this row and can go stale).
         recompute_subject_positions(
-            instance.subject_id, instance.term, instance.school_class_id, instance.year
+            instance.subject_id, instance.term, instance.student.school_class_id, instance.year
         )
         log_action(
             request=self.request,
@@ -204,8 +229,10 @@ class ResultViewSet(ModelViewSet):
     def perform_update(self, serializer):
         previous_score = self.get_object().score
         instance = serializer.save()
+        # Rank against the student's CURRENT class, not instance.school_class_id
+        # (which is just whatever was saved on this row and can go stale).
         recompute_subject_positions(
-            instance.subject_id, instance.term, instance.school_class_id, instance.year
+            instance.subject_id, instance.term, instance.student.school_class_id, instance.year
         )
         log_action(
             request=self.request,
@@ -233,7 +260,10 @@ class ResultViewSet(ModelViewSet):
         }
         subject_id       = instance.subject_id
         term              = instance.term
-        school_class_id   = instance.school_class_id
+        # Use the student's CURRENT class, not instance.school_class_id
+        # (which is just whatever was saved on this row and can go stale) —
+        # captured before delete() since instance.student is still needed.
+        school_class_id   = instance.student.school_class_id
         year              = instance.year
 
         instance.delete()
@@ -276,7 +306,16 @@ class ResultViewSet(ModelViewSet):
         # Derived from what was actually saved (not raw request data), so a
         # record that omitted `school_class` still recomputes positions for
         # the class the row actually ended up in.
+        #
+        # combos stores the STUDENT'S CURRENT class (not instance.school_class_id,
+        # which is just whatever got saved on the row and can go stale if the
+        # student is later moved to a different class). recompute_subject_positions
+        # now ranks by student__school_class_id, so combos must match that.
+        # current_class_cache avoids re-querying the same student's class
+        # multiple times in one bulk-save batch (e.g. several subjects for
+        # the same student).
         combos: set = set()
+        current_class_cache: dict = {}
 
         for record in records:
             missing = [k for k in ("student", "subject", "term") if k not in record]
@@ -344,10 +383,15 @@ class ResultViewSet(ModelViewSet):
                     defaults=defaults,
                 )
                 saved.append(instance.id)
+
+                if instance.student_id not in current_class_cache:
+                    current_class_cache[instance.student_id] = instance.student.school_class_id
+                current_class_id = current_class_cache[instance.student_id]
+
                 combos.add((
                     instance.subject_id,
                     instance.term,
-                    instance.school_class_id,
+                    current_class_id,
                     instance.year,
                 ))
 
