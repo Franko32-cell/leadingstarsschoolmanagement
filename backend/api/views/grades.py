@@ -62,7 +62,108 @@ SCHOOL_MOTTOS = {
 
 TERM_LABELS = {"term1": "Term 1", "term2": "Term 2", "term3": "Term 3"}
 
+# ---------------------------------------------------------------------------
+# Mock exam grading (Basic 9) — BECE-style cut points, distinct from GRADE_THRESHOLDS_B79
+# ---------------------------------------------------------------------------
 
+GRADE_THRESHOLDS_MOCK = [
+    (74, "1", "HIGHEST"),
+    (65, "2", "HIGHER"),
+    (60, "3", "HIGH"),
+    (55, "4", "HIGH AVERAGE"),
+    (50, "5", "AVERAGE"),
+    (45, "6", "BELOW AVERAGE"),
+    (40, "7", "LOW"),
+    (35, "8", "LOWER"),
+    (0,  "9", "LOWEST"),
+]
+
+MOCK_INTERP_ROWS = [
+    ("74-100: 1 – HIGHEST",     "49-45: 6 – BELOW AVERAGE"),
+    ("74-65: 2 – HIGHER",       "44-40: 7 – LOW"),
+    ("64-60: 3 – HIGH",         "39-35: 8 – LOWER"),
+    ("60-55: 4 – HIGH AVERAGE", "0-34: 9 – LOWEST"),
+    ("55-50: 5 – AVERAGE",      ""),
+]
+
+
+def get_mock_grade_and_remark(score: float) -> tuple[str, str]:
+    return get_grade_and_remark(score, GRADE_THRESHOLDS_MOCK)
+
+
+def compute_mock_aggregate(subject_scores: list[dict]) -> dict:
+    """
+    subject_scores: [{"subject": name, "score": float}, ...] for ONE mock.
+
+    BECE aggregate here = sum of the grade points (1-9, lower=better) for the
+    candidate's best SIX subjects BY SCORE. This is a simplification — real
+    BECE aggregates are usually 4 core subjects (Math/English/Science/Social
+    Studies) + best 2 electives, not simply "top 6 scores". If your school
+    needs that rule instead, tell us the exact core-subject list and this
+    function is the only place that needs to change.
+    """
+    graded = []
+    for row in subject_scores:
+        score = row.get("score")
+        if score is None:
+            continue
+        grade, remark = get_mock_grade_and_remark(score)
+        graded.append({**row, "grade": grade, "grade_point": int(grade), "remark": remark})
+
+    graded.sort(key=lambda r: -r["score"])
+    best_six = graded[:6]
+
+    return {
+        "raw_total": round(sum(r["score"] for r in best_six), 1),
+        "aggregate": sum(r["grade_point"] for r in best_six),
+        "best_six_subjects": [r["subject"] for r in best_six],
+        "graded_subjects": graded,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pre-school rubric assessment (e.g. Little Angels)
+# ---------------------------------------------------------------------------
+
+PRESCHOOL_CATEGORIES = [
+    {"key": "crying",        "label": "Crying", "statements": [
+        "Does not cry at all", "Cries sometimes", "Cries always"]},
+    {"key": "play",          "label": "Play and Has Fun", "statements": [
+        "Enjoys play always", "Enjoys and plays sometimes", "Does not enjoy play and fun at all"]},
+    {"key": "eating",        "label": "Eating", "statements": [
+        "Eats very well", "Eats well sometimes", "Does not eat at all"]},
+    {"key": "health",        "label": "Health Status", "statements": [
+        "Strong and healthy always", "Strong and healthy sometimes", "Falls sick often"]},
+    {"key": "academic",      "label": "Academic – Scribbling & Colouring", "statements": [
+        "Scribbling and colouring well always", "Scribbling and colouring sometimes",
+        "Does not scribble and colour except guided"]},
+    {"key": "punctuality",   "label": "Punctuality", "statements": [
+        "Always punctual", "Punctual sometimes", "Not punctual at all"]},
+    {"key": "sleeping",      "label": "Sleeping", "statements": [
+        "Sleeps well in school always", "Sleeps well sometimes", "Does not sleep well at all"]},
+    {"key": "items",         "label": "Item to School", "statements": [
+        "Brings all items", "Brings all items sometimes", "Does not bring all items often"]},
+    {"key": "relationship",  "label": "Relationship", "statements": [
+        "Relates well with others always", "Relates well with others sometimes",
+        "Does not relate well with others at all"]},
+    {"key": "aggressive",    "label": "Aggressive", "statements": [
+        "Not aggressive", "Aggressive sometimes", "Always aggressive"]},
+    {"key": "neatness",      "label": "Neatness", "statements": [
+        "Very neat always", "Neat sometimes", "Not neat at all"]},
+    {"key": "communication", "label": "Communication", "statements": [
+        "Communicates well always", "Communicates well sometimes", "Does not communicate well at all"]},
+]
+
+PRESCHOOL_GRADE_BANDS = [(80, "A"), (70, "B"), (60, "C"), (0, "D")]
+
+
+def get_preschool_letter(score) -> str | None:
+    if score is None:
+        return None
+    for threshold, letter in PRESCHOOL_GRADE_BANDS:
+        if score >= threshold:
+            return letter
+    return "D"
 # ---------------------------------------------------------------------------
 # Feature detection — avoids broad ProgrammingError catches
 #

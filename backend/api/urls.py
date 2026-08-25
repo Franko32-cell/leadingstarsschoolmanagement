@@ -35,6 +35,8 @@ from api.views.accounts_view import (
 from api.views.active_users_view import ActiveUsersView
 from api.views.audit_view import AuditLogListView, AuditLogExportCSVView
 from api.views.analytics_view import AnalyticsDashboardView, AttendanceDetailView
+from api.views.mock_view import MockResultViewSet, MockReportView
+from api.views.preschool_view import PreschoolAssessmentView
 
 # --- Router Setup ---
 router = DefaultRouter()
@@ -49,6 +51,8 @@ router.register(r"fees", FeeViewSet, basename="fees")
 router.register("announcements", AnnouncementViewSet)
 router.register("admissions", AdmissionViewSet)
 router.register("admin-approvals", AdminApprovalViewSet, basename="admin-approvals")
+router.register(r"mock-results", MockResultViewSet, basename="mock-results")
+router.register(r"preschool-assessments", PreschoolAssessmentView, basename="preschool-assessments")
 
 # --- URL Patterns ---
 urlpatterns = [
@@ -62,6 +66,8 @@ urlpatterns = [
     path("fees/receipt/<int:transaction_id>/", PaymentReceiptPDFView.as_view(), name="payment-receipt-pdf"),
     path("report/student/<int:student_id>/", StudentReportView.as_view(), name="student-report"),
     path("report/student/<int:student_id>/pdf/", StudentReportPDFView.as_view(), name="student-report-pdf"),
+    path("mock-report/student/<int:student_id>/", MockReportView.as_view(), name="mock-report"),
+    path("preschool-assessment/student/<int:student_id>/", PreschoolAssessmentView.as_view(), name="preschool-assessment"),
 
     # 3. Webhooks
     path("api/webhooks/paystack/", paystack_webhook, name="paystack-webhook"),
