@@ -39,6 +39,7 @@ class AuditLog(models.Model):
         PERMISSION_CHANGED = "permission_changed", "Permission Changed"
         PASSWORD_RESET = "password_reset", "Password Reset"
         PIN_RESET = "pin_reset", "PIN Reset"
+        LOGIN_UNLOCKED = "login_unlocked", "Login Unlocked"
         API_ACTION = "api_action", "API Action"
         FILE_UPLOAD = "file_upload", "File Uploaded"
         NOTIFICATION_SENT = "notification_sent", "Notification Sent"
