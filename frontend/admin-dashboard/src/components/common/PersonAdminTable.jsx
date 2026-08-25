@@ -11,6 +11,7 @@ import {
   FaArchive,
   FaTrashRestore,
   FaKey,
+  FaUnlock,
   FaChevronLeft,
   FaChevronRight,
   FaExclamationTriangle,
@@ -112,6 +113,7 @@ const ACTION_DEFS = {
   archive:       { label: "Archive",        icon: <FaArchive />,       danger: true  },
   restore:       { label: "Restore",        icon: <FaTrashRestore />,  danger: false },
   resetPassword: { label: "Reset Password", icon: <FaKey />,           danger: false },
+  unlockLogin:   { label: "Unlock Login",   icon: <FaUnlock />,        danger: false },
 };
 
 const actionsForStatus = (status) => {
@@ -119,12 +121,12 @@ const actionsForStatus = (status) => {
     case "archived":
       return ["restore"];
     case "suspended":
-      return ["reinstate", "archive", "resetPassword"];
+      return ["reinstate", "unlockLogin", "archive", "resetPassword"];
     case "inactive":
-      return ["activate", "suspend", "archive", "resetPassword"];
+      return ["activate", "unlockLogin", "suspend", "archive", "resetPassword"];
     case "active":
     default:
-      return ["deactivate", "suspend", "archive", "resetPassword"];
+      return ["deactivate", "unlockLogin", "suspend", "archive", "resetPassword"];
   }
 };
 
@@ -301,6 +303,10 @@ const PersonAdminTable = ({
     archive:       (n) => [`Archive ${n}?`, `${n} will be hidden from the default list and lose access. This can be undone via Restore.`],
     restore:       (n) => [`Restore ${n}?`, `${n} will reappear in the default list and regain access.`],
     resetPassword: (n) => [`Reset password for ${n}?`, `A new temporary password will be generated. You'll need to share it with them directly.`],
+    unlockLogin:   (n) => [
+      `Unlock login for ${n}?`,
+      `${n} was locked out after repeated failed login attempts. This clears the lockout so they can try logging in again — it does not change their account status.`,
+    ],
   };
 
   const runConfirmed = async () => {
