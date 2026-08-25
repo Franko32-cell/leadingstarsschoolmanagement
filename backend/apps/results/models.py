@@ -49,6 +49,11 @@ class Result(models.Model):
     def _get_current_year() -> int:
         return getattr(settings, "CURRENT_YEAR", timezone.now().year)
 
+    # Inside the class body, `_get_current_year` is still the raw staticmethod
+    # descriptor, so `.__func__` is valid here. (Outside the class body,
+    # accessing it via `Result._get_current_year` unwraps the staticmethod
+    # into a plain function, which has no `.__func__` — see MockResult and
+    # PreschoolAssessment below, where we reference it directly instead.)
     year   = models.PositiveIntegerField(default=_get_current_year.__func__)
 
     reopen = models.FloatField(default=0, validators=[MinValueValidator(0), MaxValueValidator(20)])
@@ -135,7 +140,7 @@ class MockResult(models.Model):
     subject      = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="mock_results")
     school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, null=True, blank=True, related_name="mock_results")
     mock         = models.CharField(max_length=10, choices=MOCK_CHOICES)
-    year         = models.PositiveIntegerField(default=Result._get_current_year.__func__)
+    year         = models.PositiveIntegerField(default=Result._get_current_year)
 
     score = models.FloatField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
 
@@ -179,7 +184,7 @@ class PreschoolAssessment(models.Model):
     student      = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="preschool_assessments")
     school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, null=True, blank=True, related_name="preschool_assessments")
     term         = models.CharField(max_length=10, choices=TERM_CHOICES)
-    year         = models.PositiveIntegerField(default=Result._get_current_year.__func__)
+    year         = models.PositiveIntegerField(default=Result._get_current_year)
 
     ratings = models.JSONField(blank=True, default=dict)
 
