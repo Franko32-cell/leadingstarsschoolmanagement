@@ -13,7 +13,11 @@ from apps.students.models import Student
 from api.serializers.student_serializer import StudentSerializer
 
 # ── Account status + audit logging ──────────────────────────────────────
-from apps.accounts.services import set_account_status, reset_password as reset_user_password
+from apps.accounts.services import (
+    set_account_status,
+    reset_password as reset_user_password,
+    unlock_login as clear_login_lockout,
+)
 from apps.audit.models import AuditLog
 from api.permissions.role_permissions import IsAdmin
 
@@ -64,7 +68,7 @@ class StudentViewSet(ModelViewSet):
     def get_permissions(self):
         if self.action in {
             "activate", "deactivate", "suspend", "reinstate",
-            "archive", "restore", "reset_password",
+            "archive", "restore", "reset_password", "unlock_login",
         }:
             return [IsAuthenticated(), IsAdmin()]
         return super().get_permissions()
@@ -143,3 +147,13 @@ class StudentViewSet(ModelViewSet):
             resource_label=self._label(student),
         )
         return Response({"new_password": new_password})
+
+    @action(detail=True, methods=["post"], url_path="unlock-login")
+    def unlock_login(self, request, pk=None):
+        student = self.get_object()
+        clear_login_lockout(
+            student.user, request=request,
+            module=AuditLog.Module.STUDENTS, resource_type="Student",
+            resource_label=self._label(student),
+        )
+        return Response({"detail": f"{student.full_name}'s login lockout has been cleared."})
