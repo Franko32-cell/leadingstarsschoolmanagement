@@ -12,7 +12,11 @@ from apps.teachers.models import Teacher
 from api.serializers.teacher_serializer import TeacherSerializer
 
 # ── Account status + audit logging ──────────────────────────────────────
-from apps.accounts.services import set_account_status, reset_password as reset_user_password
+from apps.accounts.services import (
+    set_account_status,
+    reset_password as reset_user_password,
+    unlock_login as clear_login_lockout,
+)
 from apps.audit.models import AuditLog
 from api.permissions.role_permissions import IsAdmin
 
@@ -53,7 +57,7 @@ class TeacherViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in {
             "activate", "deactivate", "suspend", "reinstate",
-            "archive", "restore", "reset_password",
+            "archive", "restore", "reset_password", "unlock_login",
         }:
             return [IsAuthenticated(), IsAdmin()]
         return super().get_permissions()
@@ -135,3 +139,13 @@ class TeacherViewSet(viewsets.ModelViewSet):
             resource_label=self._label(teacher),
         )
         return Response({"detail": f"{teacher.full_name} has been restored."})
+
+    @action(detail=True, methods=["post"], url_path="unlock-login")
+    def unlock_login(self, request, pk=None):
+        teacher = self.get_object()
+        clear_login_lockout(
+            teacher.user, request=request,
+            module=AuditLog.Module.TEACHERS, resource_type="Teacher",
+            resource_label=self._label(teacher),
+        )
+        return Response({"detail": f"{teacher.full_name}'s login lockout has been cleared."})
