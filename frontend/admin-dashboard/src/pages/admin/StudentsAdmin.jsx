@@ -10,11 +10,10 @@ import {
   archiveStudent,
   restoreStudent,
   resetStudentPassword,
+  unlockStudentLogin,
 } from "../../services/StudentAdminService";
-
 // ─── Types ──────────────────────────────────────────────────────────
 // NOTE: This file is plain JSX, so type annotations are omitted here.
-
 // ─── Static config (stable references) ──────────────────────────────
 const STUDENT_ACTIONS = {
   activate: activateStudent,
@@ -24,8 +23,8 @@ const STUDENT_ACTIONS = {
   archive: archiveStudent,
   restore: restoreStudent,
   resetPassword: resetStudentPassword,
+  unlockLogin: unlockStudentLogin,
 };
-
 const STUDENT_ROW_CONFIG = {
   getId: (s) => s.id,
   getName: (s) => s.student_name?.trim() || s.username || "Unnamed",
@@ -33,7 +32,6 @@ const STUDENT_ROW_CONFIG = {
   getStatus: (s) => s.account_status,
   getPhoto: (s) => s.photo_url,
 };
-
 const STUDENT_EXTRA_COLUMNS = [
   {
     key: "class",
@@ -46,7 +44,6 @@ const STUDENT_EXTRA_COLUMNS = [
     render: (s) => s.parent_name || "—",
   },
 ];
-
 // ─── Component ──────────────────────────────────────────────────────
 const StudentsAdmin = React.memo(() => {
   // Memoize profile renderer so PersonAdminTable can optimize list renders
@@ -54,10 +51,8 @@ const StudentsAdmin = React.memo(() => {
     (student) => <StudentProfile student={student} />,
     []
   );
-
   // Optional: if you need to transform fetched data before passing it down
   // const transformData = useCallback((data) => data, []);
-
   return (
     <PersonAdminTable
       title="Students"
@@ -72,7 +67,5 @@ const StudentsAdmin = React.memo(() => {
     />
   );
 });
-
 StudentsAdmin.displayName = "StudentsAdmin";
-
 export default StudentsAdmin;
