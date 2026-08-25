@@ -8,25 +8,22 @@ import {
   archiveTeacher,
   restoreTeacher,
   resetTeacherPassword,
+  unlockTeacherLogin,
 } from "../../services/TeacherAdminService";
-
 const fmtDate = (iso) =>
   iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Never";
-
 const Field = ({ label, value }) => (
   <div>
     <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
     <p className="text-sm font-semibold text-slate-800 mt-0.5">{value || "—"}</p>
   </div>
 );
-
 const Section = ({ title, children }) => (
   <div>
     <p className="text-xs font-black uppercase tracking-wide text-slate-400 mb-3">{title}</p>
     <div className="grid grid-cols-2 gap-x-4 gap-y-3">{children}</div>
   </div>
 );
-
 const TeachersAdmin = () => (
   <PersonAdminTable
     title="Teachers"
@@ -41,6 +38,7 @@ const TeachersAdmin = () => (
       archive: archiveTeacher,
       restore: restoreTeacher,
       resetPassword: resetTeacherPassword,
+      unlockLogin: unlockTeacherLogin,
     }}
     rowConfig={{
       getId: (t) => t.id,
@@ -87,5 +85,4 @@ const TeachersAdmin = () => (
     )}
   />
 );
-
 export default TeachersAdmin;
