@@ -52,7 +52,6 @@ router.register("announcements", AnnouncementViewSet)
 router.register("admissions", AdmissionViewSet)
 router.register("admin-approvals", AdminApprovalViewSet, basename="admin-approvals")
 router.register(r"mock-results", MockResultViewSet, basename="mock-results")
-router.register(r"preschool-assessments", PreschoolAssessmentView, basename="preschool-assessments")
 
 # --- URL Patterns ---
 urlpatterns = [
