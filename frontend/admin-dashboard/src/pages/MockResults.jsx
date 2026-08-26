@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import API from "../services/api";
+import WhatsAppSendButton from "../components/WhatsAppSendButton";
 
 const MOCKS = [1, 2, 3, 4, 5, 6].map((n) => ({
   value: `mock${n}`,
@@ -144,6 +145,7 @@ const MockResults = () => {
   const [saving, setSaving] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [message, setMessage] = useState(null);
+  const [bulkSummary, setBulkSummary] = useState(null);
 
   useEffect(() => {
     API.get("/classes/")
@@ -274,6 +276,17 @@ const MockResults = () => {
 
   const selectedClassName = classes.find((c) => String(c.id) === String(selectedClass))?.name || "";
   const selectedMockLabel = MOCKS.find((m) => m.value === selectedMock)?.label || "";
+
+  const sendBulk = async () => {
+    if (!selectedClass || !students.length) return;
+    if (!window.confirm(`Send a WhatsApp message to ${students.length} student${students.length === 1 ? "" : "s"}?`)) return;
+    try {
+      const res = await API.post(`/reports/send-whatsapp/bulk/?school_class=${selectedClass}&term=${selectedMock}&year=${selectedYear}`);
+      setBulkSummary(res.data);
+    } catch {
+      setMessage({ type: "error", text: "Couldn't send WhatsApp messages. Try again." });
+    }
+  };
 
   const downloadPdf = () => {
     if (!students.length) return;
@@ -423,6 +436,13 @@ const MockResults = () => {
               {exportingPdf ? "Preparing…" : "Download PDF"}
             </button>
             <button
+              onClick={sendBulk}
+              disabled={!selectedClass || !students.length}
+              className="border border-emerald-300 text-emerald-700 hover:bg-emerald-50 px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-40 transition-colors"
+            >
+              Send via WhatsApp
+            </button>
+            <button
               onClick={saveAll}
               disabled={saving || dirtyCount === 0}
               className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-5 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
@@ -505,7 +525,13 @@ const MockResults = () => {
                       className={`${i % 2 === 0 ? "bg-white" : "bg-slate-50/40"} hover:bg-blue-50/30 transition-colors`}
                     >
                       <td className="px-3 py-2 font-medium text-slate-700 sticky left-0 bg-inherit whitespace-nowrap">
-                        {getStudentName(student)}
+                        <div className="flex items-center gap-2">
+                          <span>{getStudentName(student)}</span>
+                          <WhatsAppSendButton
+                            endpoint={`/reports/${subjMap[subjects[0]?.id]?.id || student.id}/send-whatsapp/?type=mock&year=${selectedYear}`}
+                            disabledReason={!student.parent_phone ? "No phone number on file" : undefined}
+                          />
+                        </div>
                       </td>
                       {subjects.map((subj) => {
                         const cell = subjMap[subj.id] || {};
@@ -545,6 +571,22 @@ const MockResults = () => {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {bulkSummary && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 px-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-slate-800">WhatsApp send results</h2>
+                <button onClick={() => setBulkSummary(null)} className="text-slate-400 hover:text-slate-700 text-xl" aria-label="Close">×</button>
+              </div>
+              {["sent", "skipped_no_phone", "skipped-no-phone", "skipped_invalid_phone", "skipped-invalid-phone", "failed"].filter((key, index, all) => all.indexOf(key) === index && (bulkSummary[key]?.length || (key === "skipped_no_phone" && bulkSummary["skipped-no-phone"]?.length) || (key === "skipped_invalid_phone" && bulkSummary["skipped-invalid-phone"]?.length))).map((key) => {
+                const ids = bulkSummary[key] || bulkSummary[key.replaceAll("_", "-")] || [];
+                const title = key.includes("no_phone") || key.includes("no-phone") ? "No phone number" : key.includes("invalid") ? "Invalid phone number" : key[0].toUpperCase() + key.slice(1);
+                return <div key={key} className="mb-3"><p className="text-xs font-bold uppercase text-slate-400">{title}</p><p className="text-sm text-slate-700">{ids.map((item) => getStudentName(students.find((s) => s.id === (item.student_id || item)) || {})).join(", ") || "None"}</p></div>;
+              })}
+            </div>
           </div>
         )}
 

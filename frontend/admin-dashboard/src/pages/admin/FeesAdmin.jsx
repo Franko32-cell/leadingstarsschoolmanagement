@@ -13,6 +13,7 @@ import {
   FaReceipt,
 } from "react-icons/fa";
 import { getFeesAdmin, payFee, addArrears } from "../../services/feeAdminService";
+import WhatsAppSendButton from "../../components/WhatsAppSendButton";
 
 const ghs = (n) =>
   `GHS ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
@@ -293,9 +294,12 @@ const Drawer = ({ fee, onClose, onPay, onArrears }) => {
               <div className="space-y-2">
                 {fee.transactions.map((t) => (
                   <div key={t.id} className="bg-slate-50 rounded-xl p-3.5 text-sm">
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center justify-between mb-1 gap-2">
                       <span className="font-bold text-slate-800">{ghs(t.amount)}</span>
-                      <span className="text-xs text-slate-400">{t.created_at_display || fmtDate(t.created_at)}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400">{t.created_at_display || fmtDate(t.created_at)}</span>
+                        <WhatsAppSendButton endpoint={`/fees/receipts/${t.id}/send-whatsapp/`} />
+                      </div>
                     </div>
                     <p className="text-xs text-slate-500">
                       {t.note || "No note"} · by {t.recorded_by_name || "System"}
@@ -318,6 +322,12 @@ const Drawer = ({ fee, onClose, onPay, onArrears }) => {
                 <FaPlusCircle /> Add Arrears
               </button>
             </div>
+            <div className="mt-2.5">
+              <WhatsAppSendButton
+                endpoint={`/fees/${fee.id}/send-whatsapp/`}
+                className="w-full py-2.5"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -338,6 +348,9 @@ const FeesAdmin = () => {
 
   const [statusFilter, setStatusFilter] = useState("");
   const [termFilter, setTermFilter] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [classes, setClasses] = useState([]);
+  const [classStudents, setClassStudents] = useState([]);
   const [searchInput, setSearchInput] = useState("");
 
   const [selectedFee, setSelectedFee] = useState(null);
@@ -346,6 +359,7 @@ const FeesAdmin = () => {
   const [modalBusy, setModalBusy] = useState(false);
   const [modalError, setModalError] = useState("");
   const [toast, setToast] = useState(null);
+  const [bulkSummary, setBulkSummary] = useState(null);
 
   const load = useCallback(
     async (targetPage = 1, isRefresh = false) => {
@@ -355,6 +369,7 @@ const FeesAdmin = () => {
         const params = { page: targetPage, page_size: pageSize };
         if (statusFilter) params.status = statusFilter;
         if (termFilter) params.term = termFilter;
+        if (classFilter) params.school_class = classFilter;
         const data = await getFeesAdmin(params);
         const results = data.results ?? data;
         setRows(results);
@@ -367,13 +382,27 @@ const FeesAdmin = () => {
         setRefreshing(false);
       }
     },
-    [statusFilter, termFilter]
+    [statusFilter, termFilter, classFilter]
   );
 
   useEffect(() => {
     load(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, termFilter]);
+  }, [statusFilter, termFilter, classFilter]);
+
+  useEffect(() => {
+    API.get("/classes/").then((res) => setClasses(res.data.results || res.data)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!classFilter) {
+      setClassStudents([]);
+      return;
+    }
+    API.get(`/students/?school_class=${classFilter}`)
+      .then((res) => setClassStudents(res.data.results || res.data))
+      .catch(() => setClassStudents([]));
+  }, [classFilter]);
 
   const visibleRows = useMemo(() => {
     if (!searchInput) return rows;
@@ -386,6 +415,17 @@ const FeesAdmin = () => {
   }, [rows, searchInput]);
 
   const refreshAfterAction = () => load(page, true);
+
+  const sendBulkBills = async () => {
+    if (!classFilter || !termFilter || !classStudents.length) return;
+    if (!window.confirm(`Send a WhatsApp bill to ${classStudents.length} student${classStudents.length === 1 ? "" : "s"}?`)) return;
+    try {
+      const res = await API.post(`/fees/send-whatsapp/bulk/?school_class=${classFilter}&term=${termFilter}`);
+      setBulkSummary(res.data);
+    } catch {
+      setToast({ type: "error", message: "Could not send WhatsApp bills. Please try again." });
+    }
+  };
 
   const submitPayment = async ({ amount, note }) => {
     setModalBusy(true);
@@ -461,6 +501,21 @@ const FeesAdmin = () => {
             className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 sm:w-44"
           />
           <select
+            value={classFilter}
+            onChange={(e) => setClassFilter(e.target.value)}
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 sm:w-44"
+          >
+            <option value="">All classes</option>
+            {classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}
+          </select>
+          <button
+            onClick={sendBulkBills}
+            disabled={!classFilter || !termFilter || !classStudents.length}
+            className="rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+          >
+            Send bills via WhatsApp
+          </button>
+          <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 sm:w-40"
@@ -527,6 +582,10 @@ const FeesAdmin = () => {
                       <td className="px-4 py-3.5 text-red-600 font-bold">{ghs(fee.balance)}</td>
                       <td className="px-4 py-3.5"><StatusBadge status={feeStatus(fee)} /></td>
                       <td className="px-2 py-3.5">
+                        <WhatsAppSendButton
+                          endpoint={`/fees/${fee.id}/send-whatsapp/`}
+                          className="mr-1"
+                        />
                         <RowMenu
                           onPay={() => setPayTarget(fee)}
                           onArrears={() => setArrearsTarget(fee)}
@@ -590,6 +649,22 @@ const FeesAdmin = () => {
       />
 
       <Toast toast={toast} onClose={() => setToast(null)} />
+
+      {bulkSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-slate-800">WhatsApp bill results</h2>
+              <button onClick={() => setBulkSummary(null)} className="text-slate-400 hover:text-slate-700 text-xl" aria-label="Close">×</button>
+            </div>
+            {["sent", "skipped-no-phone", "skipped-invalid-phone", "failed"].map((key) => {
+              const items = bulkSummary[key] || bulkSummary[key.replaceAll("-", "_")] || [];
+              const label = key === "skipped-no-phone" ? "No phone number" : key === "skipped-invalid-phone" ? "Invalid phone number" : key[0].toUpperCase() + key.slice(1);
+              return <div key={key} className="mb-3"><p className="text-xs font-bold uppercase text-slate-400">{label}</p><p className="text-sm text-slate-700">{items.map((item) => { const id = item.student_id || item; const student = classStudents.find((s) => String(s.id) === String(id)); return student?.student_name || `${student?.first_name || ""} ${student?.last_name || ""}`.trim() || id; }).join(", ") || "None"}</p></div>;
+            })}
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }

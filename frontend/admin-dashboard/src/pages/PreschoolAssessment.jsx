@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import API from "../services/api";
+import WhatsAppSendButton from "../components/WhatsAppSendButton";
 
 const TERMS = [
   { value: "term1", label: "Term 1" },
@@ -446,9 +447,13 @@ const PreschoolAssessment = () => {
               <h2 className="text-lg font-semibold mt-1">{data.student}</h2>
               <div className="flex items-center justify-between mt-1">
                 <p className="text-blue-200 text-sm">{data.school_class}</p>
-                <p className="text-blue-200 text-xs">
-                  {completedCount} / {categories.length} categories assessed
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-blue-200 text-xs">{completedCount} / {categories.length} categories assessed</p>
+                  <WhatsAppSendButton
+                    endpoint={`/preschool-assessment/student/${selectedStudent}/send-whatsapp/?term=${selectedTerm}&year=${selectedYear}`}
+                    disabledReason={!students.find((s) => String(s.id) === String(selectedStudent))?.parent_phone ? "No phone number on file" : undefined}
+                  />
+                </div>
               </div>
               <div className="w-full h-1.5 bg-white/10 rounded-full mt-2 overflow-hidden">
                 <div
