@@ -741,7 +741,7 @@ const Dashboard = () => {
         {/* ── Section 5: Quick Actions ── */}
         <section className="pb-8">
           <SectionLabel icon={<FaArrowRight />}>Quick actions</SectionLabel>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
             <QuickActionCard
               index={0}
               label="Add Student"
@@ -773,6 +773,22 @@ const Dashboard = () => {
               path="/admin/fees"
               gradient="linear-gradient(135deg, #10b981 0%, #059669 100%)"
               icon="💳"
+            />
+            <QuickActionCard
+              index={4}
+              label="Mock Results"
+              description="BECE-style scores"
+              path="/admin/mock-results"
+              gradient="linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)"
+              icon="📊"
+            />
+            <QuickActionCard
+              index={5}
+              label="Preschool Assessment"
+              description="Early years rubric"
+              path="/admin/preschool-assessment"
+              gradient="linear-gradient(135deg, #f97316 0%, #ea580c 100%)"
+              icon="🌱"
             />
           </div>
         </section>
