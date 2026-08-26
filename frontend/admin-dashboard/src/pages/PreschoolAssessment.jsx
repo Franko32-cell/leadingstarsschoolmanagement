@@ -7,9 +7,15 @@
  * (Crying, Play, Eating, ...) the teacher ticks one of 3 descriptive
  * statements and, for whichever one applies, can enter a percentage
  * score (as seen on the sample report: "A= 80%").
+ *
+ * PDF export (client-side, via jspdf + jspdf-autotable — run
+ * `npm install jspdf jspdf-autotable` if not already in package.json)
+ * produces a printable report card for the selected student/term/year.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import API from "../services/api";
 
 const TERMS = [
@@ -28,6 +34,20 @@ const PROMOTION_OPTIONS = [
   { value: "transferred", label: "Transferred", icon: "🏫" },
   { value: "withdrawn", label: "Withdrawn", icon: "📋" },
 ];
+
+const EMPTY_META = {
+  conduct: "",
+  interest: "",
+  attitude: "",
+  teacher_performance: "",
+  remark: "",
+  attendance: 0,
+  attendance_total: 1,
+  promotion_status: "",
+  next_class: "",
+  vacation_date: "",
+  resumption_date: "",
+};
 
 const getStudentName = (s) =>
   s?.student_name ||
@@ -48,15 +68,28 @@ const letterFor = (score) => {
   return "D";
 };
 
+const snapshot = (categories, meta) => JSON.stringify({ categories, meta });
+
 // One row of the rubric — 3 tickable statements, score input for whichever
 // level is currently selected.
-const CategoryRow = ({ category, onChange }) => {
+const CategoryRow = ({ category, index, onChange }) => {
   const { level, score } = category;
+  const complete = level != null;
 
   return (
     <div className="border-b border-slate-100 py-4 last:border-b-0">
       <div className="flex items-center justify-between mb-2">
-        <h4 className="text-sm font-semibold text-slate-700">{category.label}</h4>
+        <div className="flex items-center gap-2">
+          <span
+            className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold shrink-0 ${
+              complete ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-400"
+            }`}
+            aria-hidden="true"
+          >
+            {complete ? "✓" : index + 1}
+          </span>
+          <h4 className="text-sm font-semibold text-slate-700">{category.label}</h4>
+        </div>
         {level && (
           <span className="text-xs text-slate-400">
             Level {level}
@@ -119,26 +152,18 @@ const PreschoolAssessment = () => {
 
   const [data, setData] = useState(null); // full API payload
   const [categories, setCategories] = useState([]); // editable copy
-  const [meta, setMeta] = useState({
-    conduct: "",
-    interest: "",
-    attitude: "",
-    teacher_performance: "",
-    remark: "",
-    attendance: 0,
-    attendance_total: 1,
-    promotion_status: "",
-    next_class: "",
-  });
+  const [meta, setMeta] = useState(EMPTY_META);
+  const [initialSnapshot, setInitialSnapshot] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
     API.get("/classes/")
       .then((r) => setClasses(r.data.results || r.data))
-      .catch(() => setMessage({ type: "error", text: "Failed to load classes." }));
+      .catch(() => setMessage({ type: "error", text: "Couldn't load classes. Refresh to try again." }));
   }, []);
 
   useEffect(() => {
@@ -149,7 +174,7 @@ const PreschoolAssessment = () => {
     }
     API.get(`/students/?school_class=${selectedClass}`)
       .then((r) => setStudents(r.data.results || r.data))
-      .catch(() => setMessage({ type: "error", text: "Failed to load students." }));
+      .catch(() => setMessage({ type: "error", text: "Couldn't load students for this class." }));
   }, [selectedClass]);
 
   const fetchAssessment = useCallback(async () => {
@@ -163,9 +188,7 @@ const PreschoolAssessment = () => {
       const res = await API.get(
         `/preschool-assessment/student/${selectedStudent}/?term=${selectedTerm}&year=${selectedYear}`
       );
-      setData(res.data);
-      setCategories(res.data.categories);
-      setMeta({
+      const nextMeta = {
         conduct: res.data.conduct || "",
         interest: res.data.interest || "",
         attitude: res.data.attitude || "",
@@ -175,9 +198,15 @@ const PreschoolAssessment = () => {
         attendance_total: res.data.attendance_total || 1,
         promotion_status: res.data.promotion_status || "",
         next_class: res.data.next_class ? String(res.data.next_class) : "",
-      });
+        vacation_date: res.data.vacation_date || "",
+        resumption_date: res.data.resumption_date || "",
+      };
+      setData(res.data);
+      setCategories(res.data.categories);
+      setMeta(nextMeta);
+      setInitialSnapshot(snapshot(res.data.categories, nextMeta));
     } catch {
-      setMessage({ type: "error", text: "Failed to load assessment." });
+      setMessage({ type: "error", text: "Couldn't load this assessment." });
     } finally {
       setLoading(false);
     }
@@ -192,6 +221,12 @@ const PreschoolAssessment = () => {
       prev.map((c) => (c.key === key ? { ...c, level: val.level, score: val.score } : c))
     );
   };
+
+  const isDirty = data ? snapshot(categories, meta) !== initialSnapshot : false;
+  const completedCount = useMemo(
+    () => categories.filter((c) => c.level != null).length,
+    [categories]
+  );
 
   const save = async () => {
     setSaving(true);
@@ -209,13 +244,107 @@ const PreschoolAssessment = () => {
         ...meta,
         next_class: meta.next_class || null,
         promotion_status: meta.promotion_status || null,
+        vacation_date: meta.vacation_date || null,
+        resumption_date: meta.resumption_date || null,
       });
 
       setMessage({ type: "success", text: "Saved." });
+      setInitialSnapshot(snapshot(categories, meta));
     } catch {
-      setMessage({ type: "error", text: "Failed to save assessment." });
+      setMessage({ type: "error", text: "Couldn't save this assessment. Try again." });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const attendancePct =
+    meta.attendance_total > 0 ? Math.round((meta.attendance / meta.attendance_total) * 100) : 0;
+
+  const downloadPdf = () => {
+    if (!data) return;
+    setExportingPdf(true);
+    try {
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const termLabel = TERMS.find((t) => t.value === selectedTerm)?.label || selectedTerm;
+
+      doc.setFillColor(30, 41, 59);
+      doc.rect(0, 0, pageWidth, 70, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(9);
+      doc.setFont(undefined, "bold");
+      doc.text((data.school_name || "").toUpperCase(), pageWidth / 2, 24, { align: "center" });
+      doc.setFontSize(14);
+      doc.text(data.student || "", pageWidth / 2, 42, { align: "center" });
+      doc.setFontSize(10);
+      doc.setFont(undefined, "normal");
+      doc.text(`${data.school_class || ""}  •  ${termLabel}  ${selectedYear}`, pageWidth / 2, 58, {
+        align: "center",
+      });
+      doc.setTextColor(0, 0, 0);
+
+      autoTable(doc, {
+        startY: 86,
+        head: [["#", "Category", "Statement Ticked", "Level", "Score"]],
+        body: categories.map((c, i) => {
+          const statementText =
+            c.level != null ? c.statements[c.level - 1] : "— not assessed —";
+          return [
+            String(i + 1),
+            c.label,
+            statementText,
+            c.level != null ? String(c.level) : "-",
+            c.score != null && c.score !== "" ? `${c.score}% (${letterFor(c.score) || "-"})` : "-",
+          ];
+        }),
+        theme: "grid",
+        styles: { fontSize: 8, cellPadding: 5 },
+        headStyles: { fillColor: [51, 65, 85], textColor: 255 },
+        columnStyles: {
+          0: { cellWidth: 20, halign: "center" },
+          1: { cellWidth: 90, fontStyle: "bold" },
+          3: { cellWidth: 36, halign: "center" },
+          4: { cellWidth: 60, halign: "center" },
+        },
+      });
+
+      let y = doc.lastAutoTable.finalY + 20;
+      const fields = [
+        ["Conduct", meta.conduct],
+        ["Interest", meta.interest],
+        ["Attitude", meta.attitude],
+        ["Class Teacher Remark", meta.teacher_performance],
+        ["Remark", meta.remark],
+        [
+          "Attendance",
+          `${meta.attendance} / ${meta.attendance_total} (${attendancePct}%)`,
+        ],
+        [
+          "Promotion Status",
+          PROMOTION_OPTIONS.find((o) => o.value === meta.promotion_status)?.label || "-",
+        ],
+      ];
+      if (meta.next_class) {
+        fields.push(["Next Class", classes.find((c) => String(c.id) === String(meta.next_class))?.name || "-"]);
+      }
+      if (meta.vacation_date) fields.push(["Vacation Date", meta.vacation_date]);
+      if (meta.resumption_date) fields.push(["Resumption Date", meta.resumption_date]);
+
+      doc.setFontSize(9);
+      fields.forEach(([label, value]) => {
+        if (!value) return;
+        doc.setFont(undefined, "bold");
+        doc.text(`${label}:`, 40, y);
+        doc.setFont(undefined, "normal");
+        const lines = doc.splitTextToSize(String(value), pageWidth - 180);
+        doc.text(lines, 180, y);
+        y += 16 * Math.max(lines.length, 1);
+      });
+
+      const fileSafeName = (data.student || "student").replace(/\s+/g, "_");
+      doc.save(`preschool_report_${fileSafeName}_${selectedTerm}_${selectedYear}.pdf`);
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -283,10 +412,20 @@ const PreschoolAssessment = () => {
               ))}
             </select>
           </div>
+
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={downloadPdf}
+              disabled={exportingPdf || !data}
+              className="border border-slate-300 hover:bg-slate-100 active:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-40 transition-colors"
+            >
+              {exportingPdf ? "Preparing…" : "Download PDF"}
+            </button>
+          </div>
         </div>
 
         {!selectedStudent && (
-          <div className="text-center py-16 text-slate-400">
+          <div className="text-center py-16 text-slate-400 bg-white border border-dashed border-slate-200 rounded-xl">
             <div className="text-5xl mb-3" aria-hidden="true">🧸</div>
             Select a class and student to begin.
           </div>
@@ -305,12 +444,23 @@ const PreschoolAssessment = () => {
                 {data.school_name}
               </p>
               <h2 className="text-lg font-semibold mt-1">{data.student}</h2>
-              <p className="text-blue-200 text-sm">{data.school_class}</p>
+              <div className="flex items-center justify-between mt-1">
+                <p className="text-blue-200 text-sm">{data.school_class}</p>
+                <p className="text-blue-200 text-xs">
+                  {completedCount} / {categories.length} categories assessed
+                </p>
+              </div>
+              <div className="w-full h-1.5 bg-white/10 rounded-full mt-2 overflow-hidden">
+                <div
+                  className="h-full bg-blue-300 rounded-full transition-all"
+                  style={{ width: `${categories.length ? (completedCount / categories.length) * 100 : 0}%` }}
+                />
+              </div>
             </div>
 
             <div className="p-6">
-              {categories.map((cat) => (
-                <CategoryRow key={cat.key} category={cat} onChange={updateCategory} />
+              {categories.map((cat, i) => (
+                <CategoryRow key={cat.key} category={cat} index={i} onChange={updateCategory} />
               ))}
             </div>
 
@@ -360,7 +510,7 @@ const PreschoolAssessment = () => {
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
                   Attendance (present / total)
                 </label>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
                   <input
                     type="number"
                     min="0"
@@ -368,6 +518,7 @@ const PreschoolAssessment = () => {
                     value={meta.attendance}
                     onChange={(e) => setMeta((p) => ({ ...p, attendance: e.target.value }))}
                   />
+                  <span className="text-slate-300">/</span>
                   <input
                     type="number"
                     min="1"
@@ -375,6 +526,9 @@ const PreschoolAssessment = () => {
                     value={meta.attendance_total}
                     onChange={(e) => setMeta((p) => ({ ...p, attendance_total: e.target.value }))}
                   />
+                  <span className="text-xs font-semibold text-slate-400 whitespace-nowrap">
+                    {attendancePct}%
+                  </span>
                 </div>
               </div>
 
@@ -425,12 +579,38 @@ const PreschoolAssessment = () => {
                   </select>
                 </div>
               )}
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  Vacation Date
+                </label>
+                <input
+                  type="date"
+                  className={selectCls}
+                  value={meta.vacation_date}
+                  onChange={(e) => setMeta((p) => ({ ...p, vacation_date: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  Resumption Date
+                </label>
+                <input
+                  type="date"
+                  className={selectCls}
+                  value={meta.resumption_date}
+                  onChange={(e) => setMeta((p) => ({ ...p, resumption_date: e.target.value }))}
+                />
+              </div>
             </div>
 
-            <div className="p-6 border-t border-slate-100 flex justify-end">
+            <div className="p-6 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-xs text-amber-600 font-semibold">
+                {isDirty ? "Unsaved changes" : ""}
+              </span>
               <button
                 onClick={save}
-                disabled={saving}
+                disabled={saving || !isDirty}
                 className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-5 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
               >
                 {saving ? "Saving…" : "Save Assessment"}

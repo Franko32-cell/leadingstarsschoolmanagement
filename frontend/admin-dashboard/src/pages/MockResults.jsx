@@ -10,9 +10,20 @@
  * Flow: pick Class -> Mock -> Year, then enter a raw score per subject
  * per student. Each (student, subject) cell auto-shows the BECE grade as
  * you type. "Save Changes" bulk-saves only the cells that were touched.
+ *
+ * This page only shows and saves scores for the 10 standard BECE subjects
+ * (see BECE_SUBJECTS below) — any other subjects in the school's subject
+ * list are left out of this screen entirely, since they aren't examined
+ * at BECE and have no place on a mock report.
+ *
+ * PDF export (client-side, via jspdf + jspdf-autotable — run
+ * `npm install jspdf jspdf-autotable` if not already in package.json)
+ * produces a printable mock report for the selected class/mock/year.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import API from "../services/api";
 
 const MOCKS = [1, 2, 3, 4, 5, 6].map((n) => ({
@@ -22,6 +33,40 @@ const MOCKS = [1, 2, 3, 4, 5, 6].map((n) => ({
 
 const CURRENT_YEAR = 2026;
 const YEAR_OPTIONS = Array.from({ length: 6 }, (_, i) => CURRENT_YEAR - i);
+
+// ---------------------------------------------------------------------------
+// BECE subjects
+// ---------------------------------------------------------------------------
+// Canonical order + names for the 10 BECE subjects. Each entry lists accepted
+// aliases so this matches however the subject is actually named in the DB
+// (e.g. "ICT" vs "Computing (ICT)"). Matching is case/space-insensitive.
+// If your school's subject list uses different names, add them here rather
+// than editing the filtering logic below.
+const BECE_SUBJECTS = [
+  { code: "ENG", label: "English Language", aliases: ["english language", "english"] },
+  { code: "MATH", label: "Mathematics", aliases: ["mathematics", "maths", "math"] },
+  { code: "SCI", label: "Integrated Science", aliases: ["integrated science", "science"] },
+  { code: "SOC", label: "Social Studies", aliases: ["social studies"] },
+  { code: "RME", label: "Religious & Moral Ed.", aliases: ["religious and moral education", "religious & moral education", "rme"] },
+  { code: "GHL", label: "Ghanaian Language", aliases: ["ghanaian language"] },
+  { code: "ICT", label: "Computing (ICT)", aliases: ["computing", "computing (ict)", "ict"] },
+  { code: "CAD", label: "Creative Arts & Design", aliases: ["creative arts and design", "creative arts & design", "creative arts"] },
+  { code: "CTECH", label: "Career Technology", aliases: ["career technology"] },
+  { code: "FRE", label: "French", aliases: ["french"] },
+];
+
+const normalize = (s) => (s || "").trim().toLowerCase();
+
+// Match each fetched subject to a BECE_SUBJECTS entry (by name/alias) and
+// return only the matches, sorted into the canonical BECE order.
+const filterBeceSubjects = (allSubjects) => {
+  const bySubjectId = new Map();
+  BECE_SUBJECTS.forEach((bece, order) => {
+    const match = allSubjects.find((s) => bece.aliases.includes(normalize(s.name)));
+    if (match) bySubjectId.set(match.id, { ...match, code: bece.code, order });
+  });
+  return Array.from(bySubjectId.values()).sort((a, b) => a.order - b.order);
+};
 
 // BECE-style thresholds — mirrors grades.py:GRADE_THRESHOLDS_MOCK.
 // NOTE: intentionally different from the in-term B79 scale (90-100 = "1").
@@ -85,7 +130,7 @@ const selectCls =
 
 const MockResults = () => {
   const [classes, setClasses] = useState([]);
-  const [subjects, setSubjects] = useState([]);
+  const [subjects, setSubjects] = useState([]); // filtered to BECE_SUBJECTS
   const [students, setStudents] = useState([]);
 
   const [selectedClass, setSelectedClass] = useState("");
@@ -97,15 +142,27 @@ const MockResults = () => {
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [loadingScores, setLoadingScores] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
     API.get("/classes/")
       .then((r) => setClasses(r.data.results || r.data))
-      .catch(() => setMessage({ type: "error", text: "Failed to load classes." }));
+      .catch(() => setMessage({ type: "error", text: "Couldn't load classes. Refresh to try again." }));
     API.get("/subjects/")
-      .then((r) => setSubjects(r.data.results || r.data))
-      .catch(() => setMessage({ type: "error", text: "Failed to load subjects." }));
+      .then((r) => {
+        const all = r.data.results || r.data;
+        const bece = filterBeceSubjects(all);
+        setSubjects(bece);
+        if (bece.length < BECE_SUBJECTS.length) {
+          const missing = BECE_SUBJECTS.length - bece.length;
+          setMessage({
+            type: "info",
+            text: `${missing} BECE subject${missing !== 1 ? "s" : ""} not found in your subject list — check subject names match (see BECE_SUBJECTS in this file).`,
+          });
+        }
+      })
+      .catch(() => setMessage({ type: "error", text: "Couldn't load subjects. Refresh to try again." }));
   }, []);
 
   useEffect(() => {
@@ -116,7 +173,7 @@ const MockResults = () => {
     setLoadingStudents(true);
     API.get(`/students/?school_class=${selectedClass}`)
       .then((r) => setStudents(r.data.results || r.data))
-      .catch(() => setMessage({ type: "error", text: "Failed to load students." }))
+      .catch(() => setMessage({ type: "error", text: "Couldn't load students for this class." }))
       .finally(() => setLoadingStudents(false));
   }, [selectedClass]);
 
@@ -135,7 +192,7 @@ const MockResults = () => {
       });
       setScores(next);
     } catch {
-      setMessage({ type: "error", text: "Failed to load existing scores." });
+      setMessage({ type: "error", text: "Couldn't load existing scores." });
     } finally {
       setLoadingScores(false);
     }
@@ -209,9 +266,72 @@ const MockResults = () => {
       );
       await loadScores();
     } catch {
-      setMessage({ type: "error", text: "Failed to save scores." });
+      setMessage({ type: "error", text: "Couldn't save scores. Try again." });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const selectedClassName = classes.find((c) => String(c.id) === String(selectedClass))?.name || "";
+  const selectedMockLabel = MOCKS.find((m) => m.value === selectedMock)?.label || "";
+
+  const downloadPdf = () => {
+    if (!students.length) return;
+    setExportingPdf(true);
+    try {
+      const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      doc.setFontSize(14);
+      doc.setFont(undefined, "bold");
+      doc.text("Mock Results Report", pageWidth / 2, 36, { align: "center" });
+      doc.setFontSize(10);
+      doc.setFont(undefined, "normal");
+      doc.text(
+        `${selectedClassName || "—"}  •  ${selectedMockLabel}  •  ${selectedYear}`,
+        pageWidth / 2,
+        52,
+        { align: "center" }
+      );
+
+      const head = [["Student", ...subjects.map((s) => s.code), "Best-6 Total", "Aggregate"]];
+      const body = students.map((student) => {
+        const subjMap = scores[student.id] || {};
+        const { rawTotal, aggregate, count } = computeAggregate(subjMap);
+        const subjCells = subjects.map((subj) => {
+          const cell = subjMap[subj.id];
+          if (!cell || cell.score === "" || cell.score == null) return "-";
+          const g = gradeFor(cell.score);
+          return `${cell.score}${g ? ` (${g.grade})` : ""}`;
+        });
+        return [
+          getStudentName(student),
+          ...subjCells,
+          count > 0 ? String(rawTotal) : "-",
+          count > 0 ? String(aggregate) : "-",
+        ];
+      });
+
+      autoTable(doc, {
+        startY: 66,
+        head,
+        body,
+        theme: "grid",
+        styles: { fontSize: 8, cellPadding: 4, halign: "center" },
+        headStyles: { fillColor: [51, 65, 85], textColor: 255 },
+        columnStyles: { 0: { halign: "left", fontStyle: "bold" } },
+        didParseCell: (data) => {
+          if (data.section === "body" && (data.column.index === head[0].length - 2 || data.column.index === head[0].length - 1)) {
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.fillColor = [239, 246, 255];
+          }
+        },
+      });
+
+      const fileSafeClass = (selectedClassName || "class").replace(/\s+/g, "_");
+      doc.save(`mock_results_${fileSafeClass}_${selectedMock}_${selectedYear}.pdf`);
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -221,7 +341,7 @@ const MockResults = () => {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Mock Results</h1>
           <p className="text-sm text-slate-400 mt-0.5">
-            Basic 9 BECE-style mock exam scores — pick a mock, enter raw scores per subject.
+            BECE-style mock exam scores for the 10 examined subjects — pick a mock, enter raw scores per subject.
           </p>
         </div>
 
@@ -294,7 +414,14 @@ const MockResults = () => {
             </select>
           </div>
 
-          <div className="ml-auto">
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={downloadPdf}
+              disabled={exportingPdf || !selectedClass || students.length === 0}
+              className="border border-slate-300 hover:bg-slate-100 active:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-40 transition-colors"
+            >
+              {exportingPdf ? "Preparing…" : "Download PDF"}
+            </button>
             <button
               onClick={saveAll}
               disabled={saving || dirtyCount === 0}
@@ -305,8 +432,19 @@ const MockResults = () => {
           </div>
         </div>
 
+        {/* Grade key */}
+        <div className="flex flex-wrap gap-1.5 items-center text-[11px]">
+          <span className="text-slate-400 font-semibold uppercase tracking-wider mr-1">Grade key</span>
+          {Object.entries(GRADE_COLOR).map(([grade, cls]) => (
+            <span key={grade} className={`px-1.5 py-0.5 rounded font-bold ${cls}`}>
+              {grade}
+            </span>
+          ))}
+          <span className="text-slate-400 ml-1">(1 = best, 9 = lowest)</span>
+        </div>
+
         {!selectedClass && (
-          <div className="text-center py-16 text-slate-400">
+          <div className="text-center py-16 text-slate-400 bg-white border border-dashed border-slate-200 rounded-xl">
             <div className="text-5xl mb-3" aria-hidden="true">📝</div>
             Select a class to begin entering mock scores.
           </div>
@@ -318,8 +456,26 @@ const MockResults = () => {
           </div>
         )}
 
-        {selectedClass && !loadingStudents && students.length > 0 && (
+        {selectedClass && !loadingStudents && !loadingScores && subjects.length === 0 && (
+          <div className="text-center py-16 text-red-500 bg-white border border-red-200 rounded-xl">
+            None of the 10 BECE subjects were found in your subject list. Add them under Subjects, or
+            update the alias list in MockResults.jsx to match your existing subject names.
+          </div>
+        )}
+
+        {selectedClass && !loadingStudents && students.length > 0 && subjects.length > 0 && (
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-x-auto">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 text-xs text-slate-400">
+              <span>
+                {students.length} student{students.length !== 1 ? "s" : ""} · {subjects.length} subject
+                {subjects.length !== 1 ? "s" : ""}
+              </span>
+              {dirtyCount > 0 && (
+                <span className="text-amber-600 font-semibold">
+                  {dirtyCount} unsaved change{dirtyCount !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-700 text-white">
@@ -328,7 +484,7 @@ const MockResults = () => {
                   </th>
                   {subjects.map((subj) => (
                     <th key={subj.id} className="px-3 py-2.5 text-center text-xs font-semibold whitespace-nowrap">
-                      {subj.name}
+                      <span title={subj.name}>{subj.code}</span>
                     </th>
                   ))}
                   <th className="px-3 py-2.5 text-center text-xs font-semibold bg-blue-800/60">
@@ -344,7 +500,10 @@ const MockResults = () => {
                   const subjMap = scores[student.id] || {};
                   const { rawTotal, aggregate, count } = computeAggregate(subjMap);
                   return (
-                    <tr key={student.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/40"}>
+                    <tr
+                      key={student.id}
+                      className={`${i % 2 === 0 ? "bg-white" : "bg-slate-50/40"} hover:bg-blue-50/30 transition-colors`}
+                    >
                       <td className="px-3 py-2 font-medium text-slate-700 sticky left-0 bg-inherit whitespace-nowrap">
                         {getStudentName(student)}
                       </td>
@@ -390,7 +549,9 @@ const MockResults = () => {
         )}
 
         {selectedClass && !loadingStudents && students.length === 0 && (
-          <div className="text-center py-16 text-slate-400">No students in this class.</div>
+          <div className="text-center py-16 text-slate-400 bg-white border border-dashed border-slate-200 rounded-xl">
+            No students in this class yet.
+          </div>
         )}
       </div>
     </div>
