@@ -37,7 +37,9 @@ from api.views.audit_view import AuditLogListView, AuditLogExportCSVView
 from api.views.analytics_view import AnalyticsDashboardView, AttendanceDetailView
 from api.views.mock_view import MockResultViewSet, MockReportView
 from api.views.preschool_view import PreschoolAssessmentView
-from api.views.whatsapp_view import SendWhatsAppReportView, BulkSendWhatsAppReportsView
+from api.views.whatsapp_view import (
+    SendWhatsAppReportView, SendWhatsAppStudentReportView, BulkSendWhatsAppReportsView,
+)
 from api.views.fee_whatsapp_view import (
     SendWhatsAppBillView, SendWhatsAppReceiptView, BulkSendWhatsAppBillsView,
 )
@@ -70,6 +72,7 @@ urlpatterns = [
     path("report/student/<int:student_id>/", StudentReportView.as_view(), name="student-report"),
     path("report/student/<int:student_id>/pdf/", StudentReportPDFView.as_view(), name="student-report-pdf"),
     path("reports/<int:report_id>/send-whatsapp/", SendWhatsAppReportView.as_view(), name="send-whatsapp-report"),
+    path("report/student/<int:student_id>/send-whatsapp/", SendWhatsAppStudentReportView.as_view(), name="send-whatsapp-student-report"),
     path("reports/send-whatsapp/bulk/", BulkSendWhatsAppReportsView.as_view(), name="bulk-send-whatsapp-reports"),
     path("fees/<int:fee_id>/send-whatsapp/", SendWhatsAppBillView.as_view(), name="send-whatsapp-bill"),
     path("fees/receipts/<int:transaction_id>/send-whatsapp/", SendWhatsAppReceiptView.as_view(), name="send-whatsapp-receipt"),

@@ -33,6 +33,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import API from "../services/api";
+import WhatsAppSendButton from "../components/WhatsAppSendButton";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -649,6 +650,11 @@ const Reports = () => {
                   <>↓ Download PDF</>
                 )}
               </button>
+              <WhatsAppSendButton
+                endpoint={`/report/student/${selectedStudent}/send-whatsapp/?term=${selectedTerm}&year=${Number(selectedYear)}`}
+                disabledReason={!students.find((student) => String(student.id) === String(selectedStudent))?.parent_phone ? "No phone number on file" : undefined}
+                className="mt-1"
+              />
               {pdfError && <p className="text-red-600 text-xs">{pdfError}</p>}
             </div>
           )}

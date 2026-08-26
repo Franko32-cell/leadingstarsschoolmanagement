@@ -56,6 +56,40 @@ class SendWhatsAppReportView(APIView):
         return (record, None) if record else (None, "not_found")
 
 
+class SendWhatsAppStudentReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, student_id):
+        term = request.query_params.get("term")
+        year = request.query_params.get("year") or timezone.now().year
+        if not term:
+            return Response({"success": False, "reason": "term_required"}, status=400)
+        try:
+            year = int(year)
+        except (TypeError, ValueError):
+            return Response({"success": False, "reason": "invalid_year"}, status=400)
+
+        report = Report.objects.select_related("student").filter(
+            student_id=student_id, term=term, year=year,
+        ).first()
+        if not report:
+            return Response({"success": False, "reason": "not_found"}, status=404)
+
+        pdf_request = APIRequestFactory().get("/", {"term": term, "year": year})
+        pdf_response = StudentReportPDFView().get(pdf_request, student_id)
+        if getattr(pdf_response, "status_code", 200) != 200:
+            return Response({"success": False, "reason": "pdf_generation_error"}, status=500)
+
+        result = send_whatsapp_report(
+            report.student,
+            io.BytesIO(b"".join(pdf_response.streaming_content)),
+            "Terminal report",
+            term=term,
+            year=year,
+        )
+        return Response(result, status=200 if result["success"] else 400)
+
+
 class BulkSendWhatsAppReportsView(APIView):
     permission_classes = [IsAuthenticated]
 
