@@ -37,6 +37,7 @@ from api.views.audit_view import AuditLogListView, AuditLogExportCSVView
 from api.views.analytics_view import AnalyticsDashboardView, AttendanceDetailView
 from api.views.mock_view import MockResultViewSet, MockReportView
 from api.views.preschool_view import PreschoolAssessmentView
+from api.views.whatsapp_view import SendWhatsAppReportView, BulkSendWhatsAppReportsView
 
 # --- Router Setup ---
 router = DefaultRouter()
@@ -65,6 +66,8 @@ urlpatterns = [
     path("fees/receipt/<int:transaction_id>/", PaymentReceiptPDFView.as_view(), name="payment-receipt-pdf"),
     path("report/student/<int:student_id>/", StudentReportView.as_view(), name="student-report"),
     path("report/student/<int:student_id>/pdf/", StudentReportPDFView.as_view(), name="student-report-pdf"),
+    path("reports/<int:report_id>/send-whatsapp/", SendWhatsAppReportView.as_view(), name="send-whatsapp-report"),
+    path("reports/send-whatsapp/bulk/", BulkSendWhatsAppReportsView.as_view(), name="bulk-send-whatsapp-reports"),
     path("mock-report/student/<int:student_id>/", MockReportView.as_view(), name="mock-report"),
     path("preschool-assessment/student/<int:student_id>/", PreschoolAssessmentView.as_view(), name="preschool-assessment"),
 

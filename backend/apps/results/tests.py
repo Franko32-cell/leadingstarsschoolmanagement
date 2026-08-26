@@ -8,6 +8,9 @@ from apps.students.models import Student
 from apps.subjects.models import Subject
 from apps.results.models import Result
 from apps.attendance.models import Attendance
+from apps.results.whatsapp import normalize_gh_phone, send_whatsapp_report
+from unittest.mock import patch
+from io import BytesIO
 
 
 class ResultsApiTests(TestCase):
@@ -26,6 +29,31 @@ class ResultsApiTests(TestCase):
             last_name="Doe",
             school_class=self.school_class,
         )
+
+    def test_normalize_gh_phone(self):
+        self.assertEqual(normalize_gh_phone("0241234567"), "233241234567")
+        self.assertEqual(normalize_gh_phone("+233241234567"), "233241234567")
+        self.assertEqual(normalize_gh_phone("233241234567"), "233241234567")
+        self.assertIsNone(normalize_gh_phone("024123"))
+
+    def test_send_whatsapp_report_skips_missing_or_invalid_phone(self):
+        self.assertEqual(send_whatsapp_report(self.student, BytesIO(b"pdf"), "Report")["reason"], "no_phone")
+        self.student.parent_phone = "not-a-phone"
+        self.student.save(update_fields=["parent_phone"])
+        self.assertEqual(send_whatsapp_report(self.student, BytesIO(b"pdf"), "Report")["reason"], "invalid_phone")
+
+    @patch("apps.results.whatsapp._upload_pdf", return_value="https://res.cloudinary.com/test/report.pdf")
+    @patch("apps.results.whatsapp.requests.post")
+    def test_send_whatsapp_report_success_and_termii_error(self, post, _upload):
+        self.student.parent_phone = "0241234567"
+        self.student.save(update_fields=["parent_phone"])
+        response = post.return_value
+        response.status_code = 200
+        response.text = "{}"
+        response.json.return_value = {"message_id": "msg-1"}
+        self.assertEqual(send_whatsapp_report(self.student, BytesIO(b"pdf"), "Report")["message_id"], "msg-1")
+        response.status_code = 500
+        self.assertEqual(send_whatsapp_report(self.student, BytesIO(b"pdf"), "Report")["reason"], "termii_error")
 
     def test_bulk_save_preserves_school_class_and_year(self):
         result = Result.objects.create(
