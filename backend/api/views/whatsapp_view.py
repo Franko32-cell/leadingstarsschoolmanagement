@@ -1,17 +1,14 @@
-import io
 import logging
 
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.test import APIRequestFactory
 from rest_framework.views import APIView
 
 from apps.results.models import MockResult, PreschoolAssessment, Report, Result
 from apps.results.whatsapp import send_whatsapp_report
-from apps.students.models import Student
 
-from .report_pdf_view import StudentReportPDFView
+from .report_pdf_view import generate_student_report_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +28,10 @@ class SendWhatsAppReportView(APIView):
         student = record.student
         term = record.term
         year = record.year
-        pdf_request = APIRequestFactory().get("/", {"term": term, "year": year})
-        pdf_response = StudentReportPDFView().get(pdf_request, student.id)
-        if getattr(pdf_response, "status_code", 200) != 200:
-            return Response({"success": False, "reason": "pdf_generation_error"}, status=500)
+        buffer, _pdf_size, _filename = generate_student_report_pdf(student.id, term, year)
 
-        pdf_file = io.BytesIO(b"".join(pdf_response.streaming_content))
         label = "Terminal report" if record_type == "report" else "Result report"
-        result = send_whatsapp_report(student, pdf_file, label, term=term, year=year)
+        result = send_whatsapp_report(student, buffer, label, term=term, year=year)
         return Response(result, status=200 if result["success"] else 400)
 
     @staticmethod
@@ -75,14 +68,11 @@ class SendWhatsAppStudentReportView(APIView):
         if not report:
             return Response({"success": False, "reason": "not_found"}, status=404)
 
-        pdf_request = APIRequestFactory().get("/", {"term": term, "year": year})
-        pdf_response = StudentReportPDFView().get(pdf_request, student_id)
-        if getattr(pdf_response, "status_code", 200) != 200:
-            return Response({"success": False, "reason": "pdf_generation_error"}, status=500)
+        buffer, _pdf_size, _filename = generate_student_report_pdf(student_id, term, year)
 
         result = send_whatsapp_report(
             report.student,
-            io.BytesIO(b"".join(pdf_response.streaming_content)),
+            buffer,
             "Terminal report",
             term=term,
             year=year,
@@ -109,14 +99,15 @@ class BulkSendWhatsAppReportsView(APIView):
             student__school_class_id=class_id, term=term, year=year,
         ).select_related("student")
         for report in reports:
-            pdf_request = APIRequestFactory().get("/", {"term": term, "year": year})
-            pdf_response = StudentReportPDFView().get(pdf_request, report.student_id)
-            if getattr(pdf_response, "status_code", 200) != 200:
+            try:
+                buffer, _pdf_size, _filename = generate_student_report_pdf(report.student_id, term, year)
+            except Exception:
+                logger.exception("PDF generation failed for student %s", report.student_id)
                 summaries["failed"].append({"student_id": report.student_id, "reason": "pdf_generation_error"})
                 continue
             result = send_whatsapp_report(
                 report.student,
-                io.BytesIO(b"".join(pdf_response.streaming_content)),
+                buffer,
                 "Terminal report",
                 term=term,
                 year=year,

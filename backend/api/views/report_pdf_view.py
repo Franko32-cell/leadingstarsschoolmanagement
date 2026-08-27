@@ -20,6 +20,20 @@ Fixes in this pass (see accompanying notes):
      is now only counted toward a class's roll if that class is where the
      MAJORITY of their subject rows for the term actually sit, rather than
      counting them if they merely have any row under that class id.
+  4. PDF-building logic extracted out of StudentReportPDFView.get() into a
+     plain generate_student_report_pdf(student_id, term, year) function.
+     This is now the single source of truth for building the report PDF —
+     both the download endpoint and the WhatsApp-send views
+     (api/views/whatsapp_view.py) call it directly with plain term/year
+     values. Do NOT reintroduce a pattern where some other view
+     instantiates StudentReportPDFView() and calls .get() on it with a
+     constructed request object: APIRequestFactory() (and similar) builds
+     a plain Django WSGIRequest, not a DRF Request — the conversion that
+     gives you request.query_params only happens inside APIView.dispatch(),
+     which never runs unless the view goes through .as_view(). Calling
+     .get() directly skips that entirely, causing
+     AttributeError: 'WSGIRequest' object has no attribute 'query_params'
+     the first time this was tried from a WhatsApp-send view in production.
 """
 
 import io
@@ -264,7 +278,290 @@ def _computed_score(result: Result) -> float:
 
 
 # ---------------------------------------------------------------------------
-# PDF View
+# PDF generation — plain function, no HTTP request involved
+# ---------------------------------------------------------------------------
+#
+# Single source of truth for building a student's report PDF. Both
+# StudentReportPDFView (the download endpoint) and the WhatsApp-send views
+# in api/views/whatsapp_view.py call this directly with plain term/year
+# values — see the module docstring above for why this must stay a plain
+# function rather than going back through a fake-request view call.
+#
+# Raises Http404 (via get_object_or_404) if the student doesn't exist —
+# callers running inside a DRF view get that turned into a normal 404
+# response by DRF's default exception handling automatically.
+# ---------------------------------------------------------------------------
+
+def generate_student_report_pdf(student_id, term, year):
+    """
+    Build a student's terminal report PDF for (student_id, term, year).
+
+    Returns (buffer: BytesIO, pdf_size: int, filename: str). The buffer is
+    already seek(0)'d and ready to read/upload/stream.
+    """
+    # ── Data fetching ─────────────────────────────────────────────
+    student = get_object_or_404(
+        Student.objects.select_related("school_class"), id=student_id,
+    )
+
+    results = (
+        Result.objects
+        .filter(student=student, term=term, year=year)
+        .select_related("subject", "school_class")
+    )
+
+    report, has_promo = _fetch_report(student, term, year)
+
+    level = getattr(student.school_class, "level", "basic_7_9") if student.school_class else "basic_7_9"
+    thresholds = get_thresholds(level)
+    show_position = level != "nursery_kg"
+    school_name = SCHOOL_NAMES.get(level, "LEADING STARS ACADEMY")
+    school_motto = SCHOOL_MOTTOS.get(level, "WHERE LEADERS ARE BORN")
+    interp_rows = get_interp_rows(level)
+
+    # ── Attendance — single aggregate ───────────────────────────────
+    att = (
+        Attendance.objects
+        .filter(student=student, term=term, year=year)
+        .aggregate(
+            total=Count("id"),
+            present=Count("id", filter=Q(status__in=["present", "late"])),
+        )
+    )
+    total_days = att["total"] or 0
+    present_days = att["present"] or 0
+    att_percent = round((present_days / total_days) * 100) if total_days else 0
+
+    # ── Class shown on the report (STAGE) ───────────────────────────
+    # FIX: use the class the student was actually in when these
+    # results were recorded, NOT student.school_class, which reflects
+    # the student's CURRENT class. After a promotion, an older term's
+    # report would otherwise show the student's new class as "STAGE"
+    # (and, since NEXT CLASS also reflects the new class, it looked
+    # like the student had been "promoted into the same class").
+    # Falls back to the current class only when there are no results
+    # at all for this term/year (nothing else to go on).
+    results_list = list(results)
+    own_class_counts = Counter(
+        r.school_class_id for r in results_list if r.school_class_id is not None
+    )
+    term_school_class = None
+    if own_class_counts:
+        target_class_id = own_class_counts.most_common(1)[0][0]
+        term_school_class = next(
+            (r.school_class for r in results_list if r.school_class_id == target_class_id),
+            None,
+        )
+    class_name = (
+        term_school_class.name if term_school_class
+        else (student.school_class.name if student.school_class else "-")
+    )
+
+    # ── Subjects ─────────────────────────────────────────────────
+    subjects = []
+    total_score = 0.0
+
+    class_results = []
+    valid_student_ids: set[int] = set()
+    if show_position and results_list:
+        # Group by the school_class each result was actually recorded
+        # under for this term/year — NOT student.school_class, which
+        # reflects the student's CURRENT class. After an end-of-term
+        # promotion these can differ (e.g. promoted Basic 2 → Basic 3,
+        # but their term3 results still belong to Basic 2), and
+        # filtering by the current class silently returns zero
+        # class_results, dropping subject positions for every
+        # promoted student.
+        result_class_ids = {
+            r.school_class_id for r in results_list if r.school_class_id is not None
+        }
+        raw_class_results = []
+        if result_class_ids:
+            raw_class_results = list(
+                Result.objects
+                .filter(
+                    school_class_id__in=result_class_ids,
+                    term=term,
+                    year=year,
+                )
+                .select_related("subject")
+            )
+
+        if raw_class_results:
+            # FIX: a student can have a handful of stray Result rows
+            # tagged to a class they don't really belong to anymore
+            # (e.g. carried over from before a promotion, or a data
+            # entry mistake). Simply filtering by school_class_id, as
+            # above, pulls in EVERY such student — even one with only
+            # 1-2 rows here — which inflates the roll count and
+            # pollutes subject-position rankings with students who
+            # don't really belong in this class.
+            #
+            # To catch this, fetch each candidate student's FULL
+            # term/year row set (not pre-filtered by class) and only
+            # keep students whose TRUE majority class — across ALL
+            # their subjects, not just the ones that happened to match
+            # this class_id — really is this class. (A student's own
+            # class_id set was already computed above as
+            # own_class_counts; do the same for every OTHER candidate
+            # here.)
+            candidate_student_ids = {r.student_id for r in raw_class_results}
+            full_candidate_rows = Result.objects.filter(
+                student_id__in=candidate_student_ids, term=term, year=year,
+            ).values("student_id", "school_class_id")
+
+            candidate_class_counts: dict[int, Counter] = {}
+            for row in full_candidate_rows:
+                candidate_class_counts.setdefault(
+                    row["student_id"], Counter()
+                )[row["school_class_id"]] += 1
+
+            target_class_id = own_class_counts.most_common(1)[0][0] if own_class_counts else None
+            valid_student_ids = {
+                sid for sid, counts in candidate_class_counts.items()
+                if target_class_id is not None
+                and counts.most_common(1)[0][0] == target_class_id
+            }
+
+            # Only keep this class's rows for students whose OVERALL
+            # majority class really is this one.
+            class_results = [r for r in raw_class_results if r.student_id in valid_student_ids]
+
+        if class_results:
+            assign_subject_positions(class_results)
+            positions = {r.id: r.subject_position for r in class_results}
+            for r in results_list:
+                r.subject_position = positions.get(r.id)
+
+    for r in results_list:
+        # FIX: recompute from components instead of trusting r.score,
+        # which has been found to be stale/out-of-sync for some rows.
+        # See _computed_score() docstring for why.
+        score = int(round(_computed_score(r)))
+        grade, remark = get_grade_and_remark(score, thresholds)
+        subjects.append({
+            "name": r.subject.name,
+            "reopen": r.reopen,
+            "ca": r.ca,
+            "exams": r.exams,
+            "score": score,
+            "grade": grade,
+            "remark": remark,
+            "position": format_position(r.subject_position) if show_position and r.subject_position is not None else None,
+        })
+        total_score += score
+
+    subject_count = len(subjects)
+    average = round(total_score / subject_count) if subject_count else 0
+    overall_grade = get_overall_grade(average, thresholds)
+
+    # ── Class roll count + overall position ─────────────────────────
+    # Overall class position is computed here for internal use, but is
+    # intentionally no longer printed on the report — see build_pdf(),
+    # where the POSITION row has been removed from info_rows. Only the
+    # subject-level POS. column is still shown.
+    position = None
+    position_formatted = "N/A"
+
+    # ── "Pupils on roll" (out_of) ───────────────────────────────────
+    # FIX: this is enrollment headcount — "how many students are in
+    # this class" — which is a completely different question from
+    # "how many students have Result rows this term". It should never
+    # be derived from Result data at all: Result rows are inherently
+    # partial while a term is still being entered (a student with zero
+    # rows so far is still on the roll), and can also be mistagged to
+    # the wrong class_id by a data-entry error elsewhere (e.g. a
+    # subject teacher's save defaulting to the wrong class for some
+    # students) without that having anything to do with roll size.
+    # Both failure modes were driving the wrong number here before.
+    # Use the roster directly — always correct, independent of
+    # Result completeness or tagging issues.
+    out_of = (
+        Student.objects.filter(school_class=student.school_class).count()
+        if student.school_class else 0
+    )
+
+    if show_position and student.school_class:
+        if class_results:
+            totals: dict[int, list[int]] = {}
+            for r in class_results:
+                totals.setdefault(r.student_id, []).append(int(round(_computed_score(r))))
+
+            averages = [
+                (sid, round(sum(scores) / len(scores)))
+                for sid, scores in totals.items() if scores
+            ]
+            averages.sort(key=lambda pair: (-pair[1], pair[0]))
+
+            current_rank = 0
+            prev_avg = object()
+            class_positions = {}
+            for i, (sid, avg) in enumerate(averages):
+                if avg != prev_avg:
+                    current_rank = i + 1
+                    prev_avg = avg
+                class_positions[sid] = current_rank
+
+            position = class_positions.get(student.id)
+            if position is not None:
+                position_formatted = format_position(position)
+
+    # ── Promotion fields ──────────────────────────────────────────
+    vacation_date = None
+    resumption_date = None
+    promotion_status = None
+    next_class_name = None
+
+    if report:
+        vacation_date = report.vacation_date
+        resumption_date = report.resumption_date
+
+        if has_promo:
+            promotion_status = getattr(report, "promotion_status", None)
+            if promotion_status:
+                promotion_status = promotion_status.capitalize()
+
+            next_class = getattr(report, "next_class", None)
+            if next_class:
+                next_class_name = next_class.name
+
+    # ── Build PDF ────────────────────────────────────────────────
+    buffer, pdf_size = build_pdf(
+        student=student,
+        class_name=class_name,
+        subjects=subjects,
+        average=average,
+        overall_grade=overall_grade,
+        total_score=total_score,
+        out_of=out_of,
+        position_formatted=position_formatted,
+        present_days=present_days,
+        total_days=total_days,
+        att_percent=att_percent,
+        report=report,
+        term=term,
+        year=year,
+        level=level,
+        show_position=show_position,
+        school_name=school_name,
+        school_motto=school_motto,
+        interp_rows=interp_rows,
+        vacation_date=vacation_date,
+        resumption_date=resumption_date,
+        promotion_status=promotion_status,
+        next_class_name=next_class_name,
+    )
+
+    name_slug = re.sub(r"[^A-Za-z0-9_-]+", "_", student.full_name.strip()).strip("_")
+    if not name_slug:
+        name_slug = str(student.admission_number)
+    filename = f"report_{name_slug}_{term}_{year}.pdf"
+
+    return buffer, pdf_size, filename
+
+
+# ---------------------------------------------------------------------------
+# PDF View — thin HTTP wrapper around generate_student_report_pdf()
 # ---------------------------------------------------------------------------
 
 class StudentReportPDFView(APIView):
@@ -285,263 +582,7 @@ class StudentReportPDFView(APIView):
         else:
             year = getattr(settings, "CURRENT_YEAR", timezone.now().year)
 
-        # ── Data fetching ─────────────────────────────────────────────
-        student = get_object_or_404(
-            Student.objects.select_related("school_class"), id=student_id,
-        )
-
-        results = (
-            Result.objects
-            .filter(student=student, term=term, year=year)
-            .select_related("subject", "school_class")
-        )
-
-        report, has_promo = _fetch_report(student, term, year)
-
-        level = getattr(student.school_class, "level", "basic_7_9") if student.school_class else "basic_7_9"
-        thresholds = get_thresholds(level)
-        show_position = level != "nursery_kg"
-        school_name = SCHOOL_NAMES.get(level, "LEADING STARS ACADEMY")
-        school_motto = SCHOOL_MOTTOS.get(level, "WHERE LEADERS ARE BORN")
-        interp_rows = get_interp_rows(level)
-
-        # ── Attendance — single aggregate ───────────────────────────────
-        att = (
-            Attendance.objects
-            .filter(student=student, term=term, year=year)
-            .aggregate(
-                total=Count("id"),
-                present=Count("id", filter=Q(status__in=["present", "late"])),
-            )
-        )
-        total_days = att["total"] or 0
-        present_days = att["present"] or 0
-        att_percent = round((present_days / total_days) * 100) if total_days else 0
-
-        # ── Class shown on the report (STAGE) ───────────────────────────
-        # FIX: use the class the student was actually in when these
-        # results were recorded, NOT student.school_class, which reflects
-        # the student's CURRENT class. After a promotion, an older term's
-        # report would otherwise show the student's new class as "STAGE"
-        # (and, since NEXT CLASS also reflects the new class, it looked
-        # like the student had been "promoted into the same class").
-        # Falls back to the current class only when there are no results
-        # at all for this term/year (nothing else to go on).
-        results_list = list(results)
-        own_class_counts = Counter(
-            r.school_class_id for r in results_list if r.school_class_id is not None
-        )
-        term_school_class = None
-        if own_class_counts:
-            target_class_id = own_class_counts.most_common(1)[0][0]
-            term_school_class = next(
-                (r.school_class for r in results_list if r.school_class_id == target_class_id),
-                None,
-            )
-        class_name = (
-            term_school_class.name if term_school_class
-            else (student.school_class.name if student.school_class else "-")
-        )
-
-        # ── Subjects ─────────────────────────────────────────────────
-        subjects = []
-        total_score = 0.0
-
-        class_results = []
-        valid_student_ids: set[int] = set()
-        if show_position and results_list:
-            # Group by the school_class each result was actually recorded
-            # under for this term/year — NOT student.school_class, which
-            # reflects the student's CURRENT class. After an end-of-term
-            # promotion these can differ (e.g. promoted Basic 2 → Basic 3,
-            # but their term3 results still belong to Basic 2), and
-            # filtering by the current class silently returns zero
-            # class_results, dropping subject positions for every
-            # promoted student.
-            result_class_ids = {
-                r.school_class_id for r in results_list if r.school_class_id is not None
-            }
-            raw_class_results = []
-            if result_class_ids:
-                raw_class_results = list(
-                    Result.objects
-                    .filter(
-                        school_class_id__in=result_class_ids,
-                        term=term,
-                        year=year,
-                    )
-                    .select_related("subject")
-                )
-
-            if raw_class_results:
-                # FIX: a student can have a handful of stray Result rows
-                # tagged to a class they don't really belong to anymore
-                # (e.g. carried over from before a promotion, or a data
-                # entry mistake). Simply filtering by school_class_id, as
-                # above, pulls in EVERY such student — even one with only
-                # 1-2 rows here — which inflates the roll count and
-                # pollutes subject-position rankings with students who
-                # don't really belong in this class.
-                #
-                # To catch this, fetch each candidate student's FULL
-                # term/year row set (not pre-filtered by class) and only
-                # keep students whose TRUE majority class — across ALL
-                # their subjects, not just the ones that happened to match
-                # this class_id — really is this class. (A student's own
-                # class_id set was already computed above as
-                # own_class_counts; do the same for every OTHER candidate
-                # here.)
-                candidate_student_ids = {r.student_id for r in raw_class_results}
-                full_candidate_rows = Result.objects.filter(
-                    student_id__in=candidate_student_ids, term=term, year=year,
-                ).values("student_id", "school_class_id")
-
-                candidate_class_counts: dict[int, Counter] = {}
-                for row in full_candidate_rows:
-                    candidate_class_counts.setdefault(
-                        row["student_id"], Counter()
-                    )[row["school_class_id"]] += 1
-
-                target_class_id = own_class_counts.most_common(1)[0][0] if own_class_counts else None
-                valid_student_ids = {
-                    sid for sid, counts in candidate_class_counts.items()
-                    if target_class_id is not None
-                    and counts.most_common(1)[0][0] == target_class_id
-                }
-
-                # Only keep this class's rows for students whose OVERALL
-                # majority class really is this one.
-                class_results = [r for r in raw_class_results if r.student_id in valid_student_ids]
-
-            if class_results:
-                assign_subject_positions(class_results)
-                positions = {r.id: r.subject_position for r in class_results}
-                for r in results_list:
-                    r.subject_position = positions.get(r.id)
-
-        for r in results_list:
-            # FIX: recompute from components instead of trusting r.score,
-            # which has been found to be stale/out-of-sync for some rows.
-            # See _computed_score() docstring for why.
-            score = int(round(_computed_score(r)))
-            grade, remark = get_grade_and_remark(score, thresholds)
-            subjects.append({
-                "name": r.subject.name,
-                "reopen": r.reopen,
-                "ca": r.ca,
-                "exams": r.exams,
-                "score": score,
-                "grade": grade,
-                "remark": remark,
-                "position": format_position(r.subject_position) if show_position and r.subject_position is not None else None,
-            })
-            total_score += score
-
-        subject_count = len(subjects)
-        average = round(total_score / subject_count) if subject_count else 0
-        overall_grade = get_overall_grade(average, thresholds)
-
-        # ── Class roll count + overall position ─────────────────────────
-        # Overall class position is computed here for internal use, but is
-        # intentionally no longer printed on the report — see build_pdf(),
-        # where the POSITION row has been removed from info_rows. Only the
-        # subject-level POS. column is still shown.
-        position = None
-        position_formatted = "N/A"
-
-        # ── "Pupils on roll" (out_of) ───────────────────────────────────
-        # FIX: this is enrollment headcount — "how many students are in
-        # this class" — which is a completely different question from
-        # "how many students have Result rows this term". It should never
-        # be derived from Result data at all: Result rows are inherently
-        # partial while a term is still being entered (a student with zero
-        # rows so far is still on the roll), and can also be mistagged to
-        # the wrong class_id by a data-entry error elsewhere (e.g. a
-        # subject teacher's save defaulting to the wrong class for some
-        # students) without that having anything to do with roll size.
-        # Both failure modes were driving the wrong number here before.
-        # Use the roster directly — always correct, independent of
-        # Result completeness or tagging issues.
-        out_of = (
-            Student.objects.filter(school_class=student.school_class).count()
-            if student.school_class else 0
-        )
-
-        if show_position and student.school_class:
-            if class_results:
-                totals: dict[int, list[int]] = {}
-                for r in class_results:
-                    totals.setdefault(r.student_id, []).append(int(round(_computed_score(r))))
-
-                averages = [
-                    (sid, round(sum(scores) / len(scores)))
-                    for sid, scores in totals.items() if scores
-                ]
-                averages.sort(key=lambda pair: (-pair[1], pair[0]))
-
-                current_rank = 0
-                prev_avg = object()
-                class_positions = {}
-                for i, (sid, avg) in enumerate(averages):
-                    if avg != prev_avg:
-                        current_rank = i + 1
-                        prev_avg = avg
-                    class_positions[sid] = current_rank
-
-                position = class_positions.get(student.id)
-                if position is not None:
-                    position_formatted = format_position(position)
-
-        # ── Promotion fields ──────────────────────────────────────────
-        vacation_date = None
-        resumption_date = None
-        promotion_status = None
-        next_class_name = None
-
-        if report:
-            vacation_date = report.vacation_date
-            resumption_date = report.resumption_date
-
-            if has_promo:
-                promotion_status = getattr(report, "promotion_status", None)
-                if promotion_status:
-                    promotion_status = promotion_status.capitalize()
-
-                next_class = getattr(report, "next_class", None)
-                if next_class:
-                    next_class_name = next_class.name
-
-        # ── Build PDF ────────────────────────────────────────────────
-        buffer, pdf_size = build_pdf(
-            student=student,
-            class_name=class_name,
-            subjects=subjects,
-            average=average,
-            overall_grade=overall_grade,
-            total_score=total_score,
-            out_of=out_of,
-            position_formatted=position_formatted,
-            present_days=present_days,
-            total_days=total_days,
-            att_percent=att_percent,
-            report=report,
-            term=term,
-            year=year,
-            level=level,
-            show_position=show_position,
-            school_name=school_name,
-            school_motto=school_motto,
-            interp_rows=interp_rows,
-            vacation_date=vacation_date,
-            resumption_date=resumption_date,
-            promotion_status=promotion_status,
-            next_class_name=next_class_name,
-        )
-
-        name_slug = re.sub(r"[^A-Za-z0-9_-]+", "_", student.full_name.strip()).strip("_")
-        if not name_slug:
-            name_slug = str(student.admission_number)
-        filename = f"report_{name_slug}_{term}_{year}.pdf"
+        buffer, pdf_size, filename = generate_student_report_pdf(student_id, term, year)
 
         response = StreamingHttpResponse(
             iter([buffer.getvalue()]), content_type="application/pdf"
