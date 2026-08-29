@@ -12,7 +12,14 @@ import {
   FaChevronRight,
   FaReceipt,
 } from "react-icons/fa";
-import { getFeesAdmin, payFee, addArrears } from "../../services/feeAdminService";
+import {
+  getFeesAdmin,
+  payFee,
+  addArrears,
+  getSchoolClasses,
+  getStudentsByClass,
+  sendBulkWhatsAppBills,
+} from "../../services/feeAdminService";
 import WhatsAppSendButton from "../../components/WhatsAppSendButton";
 
 const ghs = (n) =>
@@ -391,7 +398,9 @@ const FeesAdmin = () => {
   }, [statusFilter, termFilter, classFilter]);
 
   useEffect(() => {
-    API.get("/classes/").then((res) => setClasses(res.data.results || res.data)).catch(() => {});
+    getSchoolClasses()
+      .then((data) => setClasses(data.results || data))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -399,8 +408,8 @@ const FeesAdmin = () => {
       setClassStudents([]);
       return;
     }
-    API.get(`/students/?school_class=${classFilter}`)
-      .then((res) => setClassStudents(res.data.results || res.data))
+    getStudentsByClass(classFilter)
+      .then((data) => setClassStudents(data.results || data))
       .catch(() => setClassStudents([]));
   }, [classFilter]);
 
@@ -420,8 +429,8 @@ const FeesAdmin = () => {
     if (!classFilter || !termFilter || !classStudents.length) return;
     if (!window.confirm(`Send a WhatsApp bill to ${classStudents.length} student${classStudents.length === 1 ? "" : "s"}?`)) return;
     try {
-      const res = await API.post(`/fees/send-whatsapp/bulk/?school_class=${classFilter}&term=${termFilter}`);
-      setBulkSummary(res.data);
+      const data = await sendBulkWhatsAppBills(classFilter, termFilter);
+      setBulkSummary(data);
     } catch {
       setToast({ type: "error", message: "Could not send WhatsApp bills. Please try again." });
     }
