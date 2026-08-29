@@ -2,6 +2,7 @@ from io import BytesIO
 
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
 from rest_framework.views import APIView
@@ -17,6 +18,19 @@ def _pdf_bytes(response):
     return BytesIO(response.content)
 
 
+def _drf_get_request(query_params=None):
+    """
+    APIRequestFactory().get(...) builds a plain Django WSGIRequest.
+    Calling a DRF view's .get() directly (bypassing .dispatch()/.as_view())
+    means that WSGIRequest is never converted into a DRF Request, so
+    request.query_params (DRF-only) is missing and raises AttributeError.
+    Wrap it explicitly so query_params works the same way it would in a
+    normal request/response cycle.
+    """
+    raw_request = APIRequestFactory().get("/", query_params or {})
+    return Request(raw_request)
+
+
 class SendWhatsAppBillView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -25,7 +39,7 @@ class SendWhatsAppBillView(APIView):
         if not fee:
             return Response({"success": False, "reason": "not_found"}, status=404)
 
-        pdf_request = APIRequestFactory().get("/", {"term": fee.term})
+        pdf_request = _drf_get_request({"term": fee.term})
         pdf_response = StudentFeeBillPDFView().get(pdf_request, fee.student_id)
         if getattr(pdf_response, "status_code", 200) != 200:
             return Response({"success": False, "reason": "pdf_generation_error"}, status=500)
@@ -52,7 +66,7 @@ class SendWhatsAppReceiptView(APIView):
         if not transaction:
             return Response({"success": False, "reason": "not_found"}, status=404)
 
-        pdf_request = APIRequestFactory().get("/")
+        pdf_request = _drf_get_request()
         pdf_response = PaymentReceiptPDFView().get(pdf_request, transaction.id)
         if getattr(pdf_response, "status_code", 200) != 200:
             return Response({"success": False, "reason": "pdf_generation_error"}, status=500)
@@ -81,7 +95,7 @@ class BulkSendWhatsAppBillsView(APIView):
             student__school_class_id=class_id, term=term,
         ).select_related("student")
         for fee in fees:
-            pdf_request = APIRequestFactory().get("/", {"term": fee.term})
+            pdf_request = _drf_get_request({"term": fee.term})
             pdf_response = StudentFeeBillPDFView().get(pdf_request, fee.student_id)
             if getattr(pdf_response, "status_code", 200) != 200:
                 summary["failed"].append({"student_id": fee.student_id, "reason": "pdf_generation_error"})
