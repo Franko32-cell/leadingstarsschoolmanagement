@@ -1,4 +1,6 @@
 // src/pages/teacher/constants.js
+// CHANGED: added "E-Learning" entry to TABS. Everything else is unchanged
+// from the original file — copy this over your existing constants.js.
 
 export const TERMS = [
   { value: "term1", label: "Term 1" },
@@ -52,11 +54,13 @@ export const GRADE_SCALE_B16 = [
 
 export const CONDUCT_OPTIONS = ["Excellent", "Very Good", "Good", "Fair", "Poor"];
 
+// CHANGED: added E-Learning tab
 export const TABS = [
   { key: "Classes",       icon: "🏫", label: "Classes"       },
   { key: "Attendance",    icon: "📋", label: "Attendance"    },
   { key: "Results",       icon: "📊", label: "Results"       },
   { key: "Character",     icon: "🌟", label: "Character"     },
+  { key: "E-Learning",    icon: "🎓", label: "E-Learning"    },
   { key: "Reports",       icon: "📄", label: "Reports"       },
   { key: "Announcements", icon: "📢", label: "Announcements" },
 ];
@@ -100,6 +104,14 @@ export const COHORT_OPTIONS = [
   { value: "2nd", label: "2nd Cohort" },
   { value: "3rd", label: "3rd Cohort" },
 ];
+
+// NEW: e-learning assignment status pill styling (Tailwind, used in ElearningTab)
+export const SUBMISSION_STATUS_STYLES = {
+  not_submitted: "bg-slate-100 text-slate-500",
+  submitted:     "bg-blue-100 text-blue-700",
+  late:          "bg-orange-100 text-orange-700",
+  graded:        "bg-emerald-100 text-emerald-700",
+};
 
 export const MODAL_STYLES = `
   @keyframes tp-modal-fadein  { from{opacity:0} to{opacity:1} }
@@ -151,12 +163,12 @@ export const MODAL_STYLES = `
   .tp-modal-inputs  { display:flex; gap:8px; flex-wrap:wrap; }
   .tp-modal-field   { display:flex; flex-direction:column; gap:4px; flex:1; min-width:70px; }
   .tp-modal-field label { font-size:11px; color:#64748b; font-weight:600; }
-  .tp-modal-field input {
+  .tp-modal-field input, .tp-modal-field textarea, .tp-modal-field select {
     border:1.5px solid #e2e8f0; border-radius:8px; padding:8px 10px;
     font-family:'DM Mono',monospace; font-size:14px; font-weight:600; color:#1e293b;
     text-align:center; outline:none; transition:all .15s; width:100%; box-sizing:border-box; background:#fafafa;
   }
-  .tp-modal-field input:focus { border-color:#3b82f6; background:#fff; box-shadow:0 0 0 3px rgba(59,130,246,.1); }
+  .tp-modal-field input:focus, .tp-modal-field textarea:focus, .tp-modal-field select:focus { border-color:#3b82f6; background:#fff; box-shadow:0 0 0 3px rgba(59,130,246,.1); }
 
   .tp-divider { height:1px; background:#f1f5f9; margin:0 -22px; }
 
@@ -190,4 +202,11 @@ export const MODAL_STYLES = `
   .tp-score-btn-max         { border-color:#86efac; background:#f0fdf4; color:#166534; }
   .tp-score-btn-empty       { border-color:#e2e8f0; color:#94a3b8; font-weight:400; }
   .tp-score-breakdown       { font-size:10px; color:#94a3b8; white-space:nowrap; font-family:'DM Mono',monospace; }
+
+  .tp-file-drop {
+    border:2px dashed #e2e8f0; border-radius:10px; padding:18px; text-align:center;
+    cursor:pointer; font-size:13px; color:#64748b; transition:all .15s; background:#fafbfc;
+  }
+  .tp-file-drop:hover { border-color:#3b82f6; background:#eff6ff; color:#1d4ed8; }
+  .tp-file-drop input { display:none; }
 `;
