@@ -16,6 +16,9 @@ class ContentSerializerMixin:
 
 
 class LessonSerializer(ContentSerializerMixin, serializers.ModelSerializer):
+    subject_name = serializers.CharField(source="subject.name", read_only=True, allow_null=True)
+    teacher_name = serializers.CharField(source="teacher.full_name", read_only=True, allow_null=True)
+
     class Meta:
         model = Lesson
         fields = [
@@ -27,6 +30,9 @@ class LessonSerializer(ContentSerializerMixin, serializers.ModelSerializer):
 
 
 class AssignmentSerializer(ContentSerializerMixin, serializers.ModelSerializer):
+    subject_name = serializers.CharField(source="subject.name", read_only=True, allow_null=True)
+    teacher_name = serializers.CharField(source="teacher.full_name", read_only=True, allow_null=True)
+
     class Meta:
         model = Assignment
         fields = [
