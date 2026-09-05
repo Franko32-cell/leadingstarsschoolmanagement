@@ -87,8 +87,11 @@ const TeacherPortal = () => {
   // ── Boot ────────────────────────────────────────────────────────────────
   useEffect(() => {
     teacherData.loadClasses();
-    teacherData.loadSubjects();
-  }, [teacherData.loadClasses, teacherData.loadSubjects]);
+  }, [teacherData.loadClasses]);
+
+  useEffect(() => {
+    teacherData.loadSubjects(teacherData.selectedClass);
+  }, [teacherData.loadSubjects, teacherData.selectedClass]);
 
   useEffect(() => {
     if (teacherData.selectedClass) {

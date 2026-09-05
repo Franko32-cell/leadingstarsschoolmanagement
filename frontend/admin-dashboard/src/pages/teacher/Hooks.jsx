@@ -34,9 +34,9 @@ export function useTeacherData(initialClassId = "", initialClassName = "") {
     }
   }, []);
 
-  const loadSubjects = useCallback(async () => {
+  const loadSubjects = useCallback(async (classId) => {
     try {
-      setSubjects(await svc.fetchSubjects());
+      setSubjects(await svc.fetchSubjects(classId));
     } catch {
       // Subjects are non-critical; fail silently
     }

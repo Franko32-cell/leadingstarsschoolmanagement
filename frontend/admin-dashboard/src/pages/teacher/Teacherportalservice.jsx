@@ -13,8 +13,9 @@ export const fetchClasses = async () => {
   return r.data.results ?? r.data;
 };
 
-export const fetchSubjects = async () => {
-  const r = await API.get("/subjects/");
+export const fetchSubjects = async (classId) => {
+  const params = classId ? `?school_class=${classId}` : "";
+  const r = await API.get(`/subjects/${params}`);
   return r.data.results ?? r.data;
 };
 
