@@ -340,6 +340,71 @@ class FeeViewSet(ModelViewSet):
 
         return Response(data)
 
+    # ── List all payment transactions for a given date ────────────────────────
+    # Powers the "Receipts by Date" tab / bulk end-of-day receipt printing.
+    # NOTE: this is a separate action from the detail=True `transactions`
+    # action above. DRF routes them differently (/fees/<pk>/transactions/
+    # vs /fees/transactions/) based on detail=True/False, so reusing the
+    # same url_path is fine — they do not collide.
+
+    @action(detail=False, methods=["get"], url_path="transactions")
+    def transactions_by_date(self, request):
+        date_str = request.query_params.get("date")
+        if not date_str:
+            return Response(
+                {"error": "date is required (YYYY-MM-DD)"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        qs = (
+            PaymentTransaction.objects
+            .filter(created_at__date=date_str)
+            .select_related("fee__student", "fee__student__school_class", "recorded_by")
+            .order_by("created_at")
+        )
+
+        data = []
+        for t in qs:
+            fee          = t.fee
+            total_amount = fee.total_amount
+
+            # Balance as of THIS payment, not the fee's current (possibly
+            # later) balance — sum everything paid on this fee up to and
+            # including this transaction's timestamp. This keeps a reprinted
+            # receipt from a previous day accurate even if more payments
+            # have been recorded on the fee since.
+            paid_to_date = (
+                fee.transactions
+                .filter(created_at__lte=t.created_at)
+                .aggregate(total=Sum("amount"))["total"]
+                or Decimal("0")
+            )
+            balance_after   = total_amount - paid_to_date
+            is_full_payment = balance_after <= 0
+
+            data.append({
+                "id":                t.id,
+                "student_name":      fee.student.full_name,
+                "admission_number":  fee.student.admission_number,
+                "school_class_name": str(fee.student.school_class) if fee.student.school_class else None,
+                "amount":            str(t.amount),
+                "note":              t.note,
+                "recorded_by": (
+                    t.recorded_by.get_full_name() or t.recorded_by.username
+                    if t.recorded_by else "System"
+                ),
+                "term":              fee.term,
+                "year":              t.created_at.year,
+                "date":              t.created_at.strftime("%d %b %Y"),
+                "time":              t.created_at.strftime("%I:%M %p"),
+                "total_amount":      str(total_amount),
+                "paid_to_date":      str(paid_to_date),
+                "balance":           str(balance_after),
+                "is_full_payment":   is_full_payment,
+            })
+
+        return Response(data)
+
     # ── Assign fee to a single student ────────────────────────────────────────
 
     @action(detail=False, methods=["post"], url_path="assign-student")

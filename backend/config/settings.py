@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'apps.ai',
     'apps.audit',
     'apps.accounting',
+    'apps.elearning',
 ]
 
 

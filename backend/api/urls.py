@@ -43,6 +43,7 @@ from api.views.whatsapp_view import (
 from api.views.fee_whatsapp_view import (
     SendWhatsAppBillView, SendWhatsAppReceiptView, BulkSendWhatsAppBillsView,
 )
+from apps.elearning.views import AssignmentViewSet, LessonViewSet, SubmissionViewSet
 
 # --- Router Setup ---
 router = DefaultRouter()
@@ -58,6 +59,9 @@ router.register("announcements", AnnouncementViewSet)
 router.register("admissions", AdmissionViewSet)
 router.register("admin-approvals", AdminApprovalViewSet, basename="admin-approvals")
 router.register(r"mock-results", MockResultViewSet, basename="mock-results")
+router.register("lessons", LessonViewSet, basename="lesson")
+router.register("assignments", AssignmentViewSet, basename="assignment")
+router.register("submissions", SubmissionViewSet, basename="submission")
 
 # --- URL Patterns ---
 urlpatterns = [

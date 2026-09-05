@@ -13,8 +13,25 @@ const STATUS_FILTERS = [
   { value: "partial", label: "Partial" },
   { value: "unpaid",  label: "Unpaid"  },
 ];
-const TABS = ["Fee Records", "Assign to Class", "Assign to Student"];
+const TABS = ["Fee Records", "Assign to Class", "Assign to Student", "Receipts"];
 const emptyAssign = { amount: "", book_user_fee: "", workbook_fee: "", arrears: "" };
+
+// Used on the printed receipt — matches the PDF receipt's branding.
+// logoUrl must be a publicly reachable, absolute URL (the print window is a
+// separate document with no auth headers, so it can't hit an authenticated
+// API route). Since your logo already lives at /static/images/logo.jpeg on
+// the backend and is served by Whitenoise (no auth required), point this at
+// that same file on your backend's domain, e.g.:
+//   "https://your-backend.onrender.com/static/images/logo.jpeg"
+const SCHOOL_INFO = {
+  name: "BETHEL STAR ACADEMY",
+  tagline: "POWER KNOWLEDGE WISDOM",
+  address: "P.O. Box 000, Accra, Ghana",
+  phone: "0000 000 000",
+  logoUrl: "",
+};
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
 
 const Badge = ({ fee }) => {
   if (fee.balance <= 0) return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">✓ Paid</span>;
@@ -93,6 +110,117 @@ const FeeFormFields = ({ values, onChange, showArrears = false }) => {
   );
 };
 
+// ── Printable receipt helpers ───────────────────────────────────────────
+// Builds one receipt "card" (used twice per sheet — office copy + parent copy).
+const receiptCardHTML = (txn, copyLabel) => {
+  const amount  = Number(txn.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 });
+  const balance = Number(txn.balance ?? 0);
+  const isFull  = txn.is_full_payment !== undefined ? txn.is_full_payment : balance <= 0;
+  const term    = TERMS.find((t) => t.value === txn.term)?.label || txn.term || "";
+  return `
+    <div class="receipt-card">
+      <div class="copy-tag">${copyLabel}</div>
+      <div class="r-header">
+        ${SCHOOL_INFO.logoUrl ? `<img class="r-logo" src="${SCHOOL_INFO.logoUrl}" alt="" />` : ""}
+        <div class="r-header-text">
+          <div class="r-school">${SCHOOL_INFO.name}</div>
+          ${SCHOOL_INFO.tagline ? `<div class="r-tagline">${SCHOOL_INFO.tagline}</div>` : ""}
+          <div class="r-sub">${SCHOOL_INFO.address}${SCHOOL_INFO.phone ? " · " + SCHOOL_INFO.phone : ""}</div>
+        </div>
+      </div>
+      <div class="r-title">PAYMENT RECEIPT</div>
+      <div class="r-row"><span>Receipt No.</span><b>#${txn.id}</b></div>
+      <div class="r-row"><span>Date</span><b>${txn.date || ""}${txn.time ? "  " + txn.time : ""}</b></div>
+      <div class="r-row"><span>Student</span><b>${txn.student_name || ""}</b></div>
+      <div class="r-row"><span>Admission No.</span><b>${txn.admission_number || ""}</b></div>
+      ${txn.school_class_name ? `<div class="r-row"><span>Class</span><b>${txn.school_class_name}</b></div>` : ""}
+      ${(term || txn.year) ? `<div class="r-row"><span>Term / Year</span><b>${term}${txn.year ? " " + txn.year : ""}</b></div>` : ""}
+      ${txn.note ? `<div class="r-row"><span>Note</span><b>${txn.note}</b></div>` : ""}
+      ${txn.total_amount ? `<div class="r-row"><span>Total Fee Due</span><b>GHS ${Number(txn.total_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</b></div>` : ""}
+      <div class="r-amount"><span>Amount Paid</span><b>GHS ${amount}</b></div>
+      <div class="r-balance ${isFull ? "r-balance-clear" : "r-balance-due"}">
+        <span>${isFull ? "Balance" : "Balance Remaining"}</span>
+        <b>GHS ${Math.max(balance, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>
+      </div>
+      <div class="r-row"><span>Recorded By</span><b>${txn.recorded_by || ""}</b></div>
+      <div class="r-stamp ${isFull ? "r-stamp-full" : "r-stamp-partial"}">
+        ${isFull ? "✓ FULL PAYMENT" : "◑ PARTIAL PAYMENT"}
+      </div>
+      <div class="r-sign">
+        <div class="r-sign-line">Cashier's Signature</div>
+        <div class="r-sign-line">Parent/Guardian Signature</div>
+      </div>
+    </div>`;
+};
+
+// Wraps two copies of each transaction's receipt, one per A4 page, with a cut line.
+const buildReceiptsDocument = (txns) => {
+  const pages = txns.map((txn) => `
+    <section class="sheet">
+      ${receiptCardHTML(txn, "OFFICE COPY")}
+      <div class="cut-line">✂ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - CUT HERE - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - ✂</div>
+      ${receiptCardHTML(txn, "PARENT COPY")}
+    </section>`).join("");
+
+  return `<!doctype html>
+  <html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Receipts</title>
+    <style>
+      @page { size: A4; margin: 10mm; }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; margin: 0; }
+      .sheet { width: 100%; min-height: calc(297mm - 20mm); display: flex; flex-direction: column; justify-content: space-between; page-break-after: always; }
+      .sheet:last-child { page-break-after: auto; }
+      .receipt-card { border: 1.5px dashed #94a3b8; border-radius: 8px; padding: 16px 20px; position: relative; }
+      .copy-tag { position: absolute; top: 10px; right: 16px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 999px; }
+      .r-header { display: flex; align-items: center; justify-content: center; gap: 10px; background: #dbeafe; border: 1px solid #1e40af; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; }
+      .r-logo { width: 34px; height: 34px; object-fit: contain; border-radius: 4px; flex-shrink: 0; }
+      .r-header-text { text-align: center; flex: 1; }
+      .r-school { font-size: 15px; font-weight: 800; letter-spacing: 0.02em; color: #1e40af; }
+      .r-tagline { font-size: 8px; color: #9ca3af; letter-spacing: 0.08em; margin-top: 1px; }
+      .r-sub { font-size: 9px; color: #64748b; margin-top: 2px; }
+      .r-title { font-size: 12px; font-weight: 700; letter-spacing: 0.15em; margin-bottom: 10px; color: #111827; text-align: center; }
+      .r-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px dotted #e2e8f0; }
+      .r-row span { color: #64748b; }
+      .r-amount { display: flex; justify-content: space-between; align-items: center; font-size: 15px; margin: 10px 0 0 0; padding: 8px 10px; background: #eff6ff; border-radius: 6px; }
+      .r-amount span { color: #1d4ed8; font-weight: 600; font-size: 12px; }
+      .r-amount b { color: #1d4ed8; font-size: 16px; }
+      .r-balance { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin: 6px 0 10px 0; padding: 7px 10px; border-radius: 6px; }
+      .r-balance span { font-weight: 600; font-size: 11px; }
+      .r-balance b { font-size: 14px; }
+      .r-balance-clear { background: #f0fdf4; }
+      .r-balance-clear span, .r-balance-clear b { color: #16a34a; }
+      .r-balance-due { background: #fef2f2; }
+      .r-balance-due span, .r-balance-due b { color: #dc2626; }
+      .r-stamp { text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; border-radius: 6px; padding: 6px; margin-top: 10px; }
+      .r-stamp-full { color: #16a34a; background: #f0fdf4; border: 1.5px solid #16a34a; }
+      .r-stamp-partial { color: #d97706; background: #fffbeb; border: 1.5px solid #d97706; }
+      .r-sign { display: flex; justify-content: space-between; margin-top: 22px; }
+      .r-sign-line { font-size: 10px; color: #94a3b8; border-top: 1px solid #94a3b8; padding-top: 4px; width: 46%; text-align: center; }
+      .cut-line { text-align: center; font-size: 10px; color: #94a3b8; margin: 10px 0; letter-spacing: -0.5px; }
+      @media print { .sheet { page-break-after: always; } }
+    </style>
+  </head>
+  <body>
+    ${pages}
+    <script>
+      window.onload = function () { window.print(); };
+    </script>
+  </body>
+  </html>`;
+};
+
+const openPrintWindow = (txns) => {
+  if (!txns.length) return;
+  const win = window.open("", "_blank", "width=900,height=1000");
+  if (!win) return; // popup blocked
+  win.document.open();
+  win.document.write(buildReceiptsDocument(txns));
+  win.document.close();
+};
+
 const Fees = () => {
   const [tab, setTab]                       = useState("Fee Records");
   const [classes, setClasses]               = useState([]);
@@ -131,10 +259,18 @@ const Fees = () => {
   const [studentAssign, setStudentAssign]       = useState({ ...emptyAssign });
   const [assigningStudent, setAssigningStudent] = useState(false);
 
+  // Receipts by date
+  const [receiptDate, setReceiptDate]         = useState(todayISO());
+  const [dayTransactions, setDayTransactions] = useState([]);
+  const [loadingDayTxns, setLoadingDayTxns]   = useState(false);
+  const [dayTxnsLoaded, setDayTxnsLoaded]     = useState(false);
+  const [printingTxnId, setPrintingTxnId]     = useState(null);
+
   useEffect(() => { fetchClasses(); }, []);
   useEffect(() => { if (selectedClass) fetchStudents(selectedClass); else setStudents([]); }, [selectedClass]);
   useEffect(() => { if (selectedClass && selectedTerm) fetchSummary(); else setSummary(null); }, [selectedClass, selectedTerm, selectedYear, statusFilter]);
   useEffect(() => { setError(""); setSuccess(""); }, [tab, selectedClass, selectedTerm, selectedYear]);
+  useEffect(() => { if (tab === "Receipts") fetchDayTransactions(); }, [tab, receiptDate]);
 
   const fetchClasses  = async () => { try { const r = await API.get("/classes/"); setClasses(r.data.results || r.data); } catch { setError("Failed to load classes."); } };
   const fetchStudents = async (id) => { try { const r = await API.get(`/students/?school_class=${id}`); setStudents(r.data.results || r.data); } catch { setError("Failed to load students."); } };
@@ -153,6 +289,31 @@ const Fees = () => {
     try { const r = await API.get(`/fees/${fee.id}/transactions/`); setTransactions(r.data.transactions || []); }
     catch { setTransactions([]); }
     finally { setLoadingHistory(false); }
+  };
+
+  const fetchDayTransactions = async () => {
+    if (!receiptDate) return;
+    setLoadingDayTxns(true); setError(""); setDayTxnsLoaded(false);
+    try {
+      const r = await API.get(`/fees/transactions/?date=${receiptDate}`);
+      setDayTransactions(r.data.results || r.data || []);
+    } catch {
+      setDayTransactions([]);
+      setError("Failed to load receipts for this date.");
+    } finally {
+      setLoadingDayTxns(false); setDayTxnsLoaded(true);
+    }
+  };
+
+  const printSingleReceipt = (txn) => {
+    setPrintingTxnId(txn.id);
+    try { openPrintWindow([txn]); }
+    finally { setPrintingTxnId(null); }
+  };
+
+  const printAllForDay = () => {
+    if (!dayTransactions.length) return;
+    openPrintWindow(dayTransactions);
   };
 
   const downloadFile = async (url, fallbackFilename) => {
@@ -313,25 +474,47 @@ const Fees = () => {
 
         {/* Filter bar */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-5">
-          <div className="flex flex-wrap gap-3 items-end">
-            <div className="min-w-[160px]">
-              <SelectField value={selectedClass} onChange={setSelectedClass}>
-                <option value="">Select Class</option>
-                {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </SelectField>
+          {tab === "Receipts" ? (
+            <div className="flex flex-wrap gap-3 items-end">
+              <div>
+                <label className="text-xs font-medium text-slate-600 block mb-1">Date</label>
+                <input type="date" value={receiptDate} max={todayISO()}
+                  onChange={(e) => setReceiptDate(e.target.value)}
+                  className="border border-slate-200 p-2.5 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent" />
+              </div>
+              <Btn variant="outline" onClick={fetchDayTransactions} disabled={loadingDayTxns}>
+                {loadingDayTxns ? "Loading…" : "Refresh"}
+              </Btn>
+              <Btn variant="primary" onClick={printAllForDay} disabled={!dayTransactions.length}>
+                🖨️ Print All Receipts for This Day
+              </Btn>
+              {dayTxnsLoaded && (
+                <span className="text-xs text-slate-400 ml-1">
+                  {dayTransactions.length} receipt{dayTransactions.length === 1 ? "" : "s"} found
+                </span>
+              )}
             </div>
-            <SelectField value={selectedTerm} onChange={setSelectedTerm}>
-              {TERMS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </SelectField>
-            <SelectField value={selectedYear} onChange={setSelectedYear}>
-              {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-            </SelectField>
-            {tab === "Fee Records" && (
-              <SelectField value={statusFilter} onChange={setStatusFilter}>
-                {STATUS_FILTERS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          ) : (
+            <div className="flex flex-wrap gap-3 items-end">
+              <div className="min-w-[160px]">
+                <SelectField value={selectedClass} onChange={setSelectedClass}>
+                  <option value="">Select Class</option>
+                  {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </SelectField>
+              </div>
+              <SelectField value={selectedTerm} onChange={setSelectedTerm}>
+                {TERMS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </SelectField>
-            )}
-          </div>
+              <SelectField value={selectedYear} onChange={setSelectedYear}>
+                {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+              </SelectField>
+              {tab === "Fee Records" && (
+                <SelectField value={statusFilter} onChange={setStatusFilter}>
+                  {STATUS_FILTERS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </SelectField>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Tabs */}
@@ -485,6 +668,71 @@ const Fees = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* ── Receipts by Date ── */}
+        {tab === "Receipts" && (
+          <>
+            {loadingDayTxns && (
+              <div className="text-center py-16 text-slate-400">
+                <div className="animate-spin text-3xl mb-2">⟳</div>
+                <p className="text-sm">Loading receipts...</p>
+              </div>
+            )}
+            {!loadingDayTxns && dayTxnsLoaded && dayTransactions.length === 0 && (
+              <div className="text-center py-16 text-slate-400">
+                <div className="text-4xl mb-2">🧾</div>
+                <p>No payments were recorded on this date.</p>
+              </div>
+            )}
+            {!loadingDayTxns && dayTransactions.length > 0 && (
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200">
+                        {["Time","Student","Adm No.","Class","Amount","Note","Recorded By","Actions"].map((h) => (
+                          <th key={h} className={`p-3 text-xs font-semibold text-slate-500 uppercase tracking-wide ${h === "Actions" ? "text-center" : h === "Amount" ? "text-right" : "text-left"}`}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {dayTransactions.map((txn) => (
+                        <tr key={txn.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-3 text-slate-500">{txn.time}</td>
+                          <td className="p-3 font-medium text-slate-800">{txn.student_name}</td>
+                          <td className="p-3 text-slate-500">{txn.admission_number}</td>
+                          <td className="p-3 text-slate-500">{txn.school_class_name || "—"}</td>
+                          <td className="p-3 text-right font-semibold text-emerald-600">GHS {Number(txn.amount).toLocaleString()}</td>
+                          <td className="p-3 text-slate-400 italic truncate max-w-[140px]">{txn.note || "—"}</td>
+                          <td className="p-3 text-slate-500">{txn.recorded_by}</td>
+                          <td className="p-3">
+                            <div className="flex gap-1.5 justify-center flex-wrap">
+                              <Btn size="sm" variant="primary" disabled={printingTxnId === txn.id} onClick={() => printSingleReceipt(txn)}>
+                                🖨️ Print
+                              </Btn>
+                              <Btn size="sm" variant="ghost" onClick={() => downloadReceiptFromHistory(txn, txn.admission_number)}>PDF</Btn>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    {dayTransactions.length > 0 && (
+                      <tfoot>
+                        <tr className="bg-slate-50 border-t border-slate-200">
+                          <td colSpan={4} className="p-3 text-xs font-semibold text-slate-500 uppercase">Total Collected</td>
+                          <td className="p-3 text-right font-bold text-emerald-700">
+                            GHS {dayTransactions.reduce((sum, t) => sum + Number(t.amount || 0), 0).toLocaleString()}
+                          </td>
+                          <td colSpan={3}></td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
