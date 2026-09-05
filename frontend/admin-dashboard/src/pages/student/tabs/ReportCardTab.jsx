@@ -3,7 +3,7 @@
 import React from "react";
 import { KpiCard, Empty, Loading, SubjectTable } from "../components/Ui";
 
-const ReportCardTab = ({ report, loading, onDownload }) => {
+const ReportCardTab = ({ report, loading }) => {
   if (loading) return <Loading text="Loading report card…" />;
   if (!report) return <Empty icon="📄" title="No report card found" sub="No data available for this term yet." />;
 

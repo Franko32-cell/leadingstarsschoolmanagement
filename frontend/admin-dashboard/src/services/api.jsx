@@ -9,7 +9,7 @@ const getPathname = (url) => {
   try {
     // new URL(relative, base) works for both absolute and relative URLs
     return new URL(url, BASE_URL).pathname;
-  } catch (e) {
+  } catch {
     return url || "";
   }
 };

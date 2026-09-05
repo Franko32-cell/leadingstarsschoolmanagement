@@ -69,7 +69,7 @@ const Accounting = () => {
 
         setAccounts(accountsData.results ?? accountsData);
         setTrialBalance(trialBalanceData);
-      } catch (err) {
+      } catch {
         setError("Failed to load accounting data. Please refresh the page.");
       } finally {
         setLoading(false);

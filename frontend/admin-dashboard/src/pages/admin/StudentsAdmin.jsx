@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback } from "react";
 import PersonAdminTable from "../../components/common/PersonAdminTable";
 import StudentProfile from "./StudentProfile";
 import {

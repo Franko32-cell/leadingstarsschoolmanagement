@@ -136,7 +136,9 @@ const Topbar = ({ onMenuToggle, sidebarOpen }) => {
         const items = (res.data.results ?? res.data).slice(0, 8);
         setAnnouncements(items);
         setUnread(items.filter((a) => a.priority === "critical" || a.priority === "urgent").length);
-      } catch {}
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn("Announcement fetch failed:", err);
+      }
     };
     load();
   }, []);

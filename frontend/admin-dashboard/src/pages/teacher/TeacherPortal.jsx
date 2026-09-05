@@ -15,6 +15,7 @@ import {
 // Hooks
 import {
   useTeacherData,
+  useTeacherElearning,
   useAttendance,
   useResults,
   useCharAssessment,
@@ -34,6 +35,7 @@ import ResultsTab     from "./tabs/ResultsTab";
 import CharacterTab   from "./tabs/CharacterTab";
 import ReportsTab     from "./tabs/ReportsTab";
 import AnnouncementsFeed from "../AnnouncementsFeed";
+import ElearningTab from "./tabs/ElearningTab";
 
 // ─────────────────────────────────────────────
 // TeacherPortal
@@ -69,16 +71,17 @@ const TeacherPortal = () => {
   const attendance   = useAttendance();
   const results      = useResults();
   const charAssess   = useCharAssessment();
+  const elearning    = useTeacherElearning();
 
   // Unified error/success — each hook owns its own; we surface them here
-  const error   = teacherData.error   || attendance.error   || results.error   || charAssess.error;
-  const success = teacherData.success || attendance.success || results.success || charAssess.success;
+  const error   = teacherData.error   || attendance.error   || results.error   || charAssess.error || elearning.error;
+  const success = teacherData.success || attendance.success || results.success || charAssess.success || elearning.success;
 
   const clearError   = () => {
-    teacherData.setError(""); attendance.setError(""); results.setError(""); charAssess.setError("");
+    teacherData.setError(""); attendance.setError(""); results.setError(""); charAssess.setError(""); elearning.setError("");
   };
   const clearSuccess = () => {
-    teacherData.setSuccess?.(""); attendance.setSuccess(""); results.setSuccess(""); charAssess.setSuccess("");
+    teacherData.setSuccess?.(""); attendance.setSuccess(""); results.setSuccess(""); charAssess.setSuccess(""); elearning.setSuccess("");
   };
 
   // ── Boot ────────────────────────────────────────────────────────────────
@@ -132,6 +135,12 @@ const TeacherPortal = () => {
       charAssess.load(charAssess.charStudentId, selectedTerm, selectedYear);
     }
   }, [tab, charAssess.charStudentId, selectedTerm, selectedYear]);
+
+  useEffect(() => {
+    if (tab === "E-Learning" && teacherData.selectedClass) {
+      elearning.load(teacherData.selectedClass, selectedSubject, selectedTerm, selectedYear);
+    }
+  }, [tab, teacherData.selectedClass, selectedSubject, selectedTerm, selectedYear, elearning.load]);
 
   useEffect(() => {
     if (tab === "Character" && teacherData.students.length > 0 && !charAssess.charStudentId) {
@@ -340,7 +349,7 @@ const TeacherPortal = () => {
               </select>
             </div>
 
-            {tab === "Results" && (
+            {(tab === "Results" || tab === "E-Learning") && (
               <div>
                 <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide block mb-1.5">Subject</label>
                 <select value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)}
@@ -502,6 +511,24 @@ const TeacherPortal = () => {
                 selectedTerm={selectedTerm}
                 selectedYear={selectedYear}
                 charAssess={charAssess}
+              />
+            )}
+
+            {tab === "E-Learning" && (
+              <ElearningTab
+                lessons={elearning.lessons}
+                assignments={elearning.assignments}
+                students={teacherData.students}
+                subjects={teacherData.subjects}
+                loading={elearning.loading}
+                saving={elearning.saving}
+                submissions={elearning.submissions}
+                onSaveLesson={elearning.saveLesson}
+                onDeleteLesson={elearning.deleteLesson}
+                onSaveAssignment={elearning.saveAssignment}
+                onDeleteAssignment={elearning.deleteAssignment}
+                onLoadSubmissions={elearning.loadSubmissions}
+                onGrade={elearning.gradeSubmission}
               />
             )}
 

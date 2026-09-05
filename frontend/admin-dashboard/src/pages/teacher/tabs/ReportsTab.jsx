@@ -27,7 +27,6 @@ const PROMOTION_OPTIONS = [
 const ReportsTab = ({
   students = [],
   selectedClassName = "",
-  selectedClass = "",
   selectedTerm = "",
   selectedYear = "",
 }) => {

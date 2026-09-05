@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { FaUser, FaLock, FaEnvelope, FaUserShield, FaClock } from "react-icons/fa";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { register } from "../services/auth";
 
 const Register = () => {
-  const navigate                = useNavigate();
   const [username, setUsername] = useState("");
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");

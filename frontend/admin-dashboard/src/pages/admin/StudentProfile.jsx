@@ -9,8 +9,6 @@ const TERMS = [
 const YEARS = [2026, 2025, 2024, 2023, 2022];
 const TABS = ["Overview", "Fees & Payments", "Results"];
 
-const fmtDate = (v) => (v ? v : "—");
-
 const FeeBadge = ({ fee }) => {
   if (fee.balance <= 0)
     return (

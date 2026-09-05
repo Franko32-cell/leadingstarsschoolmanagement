@@ -420,7 +420,9 @@ const Admissions = () => {
     try {
       const res = await API.get("/classes/");
       setClasses(res.data.results ?? res.data);
-    } catch {}
+    } catch {
+      setError("Failed to load classes.");
+    }
   }, []);
 
   useEffect(() => { loadAdmissions(); loadClasses(); }, [loadAdmissions, loadClasses]);

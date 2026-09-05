@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { logout, getUser } from "../services/auth";
 import API from "../services/api";
@@ -52,6 +52,7 @@ const NAV_SECTIONS = [
       { name: "Mock Results", path: "/admin/mock-results", icon: FaClipboardList },
       { name: "Preschool Assessment", path: "/admin/preschool-assessment", icon: FaGraduationCap },
       { name: "Attendance", path: "/admin/attendance", icon: FaCalendarCheck },
+      { name: "E-learning", path: "/admin/elearning", icon: FaGraduationCap },
       { name: "Reports",    path: "/admin/reports",    icon: FaChartBar      },
     ],
   },

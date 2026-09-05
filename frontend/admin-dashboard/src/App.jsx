@@ -32,6 +32,7 @@ const Subjects = lazy(() => import("./pages/Subjects"));
 const Reports = lazy(() => import("./pages/Reports"));
 const MockResults = lazy(() => import("./pages/MockResults"));
 const PreschoolAssessment = lazy(() => import("./pages/PreschoolAssessment"));
+const Elearning = lazy(() => import("./pages/Elearning"));
 const AdminApprovals = lazy(() => import("./pages/AdminApprovals"));
 const AdminSettings = lazy(() => import("./pages/admin/AdminSettings"));
 const StudentPortal = lazy(() => import("./pages/student/StudentPortal"));
@@ -109,6 +110,7 @@ function App() {
               <Route path="announcements" element={<Announcements />} />
               <Route path="mock-results" element={<MockResults />} />
               <Route path="preschool-assessment" element={<PreschoolAssessment />} />
+              <Route path="elearning" element={<Elearning />} />
               <Route path="fees" element={<Fees />} />
               <Route path="accounts" element={<Accounts />} />
               <Route path="accounting" element={<Accounting />} />

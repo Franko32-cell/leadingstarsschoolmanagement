@@ -6,6 +6,7 @@
 import { useState, useCallback, useRef } from "react";
 import * as svc from "./Teacherportalservice";
 import { mkDefaultCharState } from "./Helpers";
+import * as elearningSvc from "./elearningService";
 
 // ── useTeacherData ────────────────────────────────────────────────────────
 // Loads classes, subjects, and students. Resets derived state on class change.
@@ -80,6 +81,102 @@ export function useTeacherData(initialClassId = "", initialClassName = "") {
     loadSubjects,
     loadStudents,
     changeClass,
+  };
+}
+
+// ── useTeacherElearning ──────────────────────────────────────────────────
+
+export function useTeacherElearning() {
+  const [lessons, setLessons] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [submissions, setSubmissions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const load = useCallback(async (classId, subjectId, term, year) => {
+    if (!classId) return;
+    setLoading(true);
+    setError("");
+    try {
+      const [lessonList, assignmentList] = await Promise.all([
+        elearningSvc.fetchLessons(classId, subjectId, term, year),
+        elearningSvc.fetchAssignments(classId, subjectId, term, year),
+      ]);
+      setLessons(lessonList);
+      setAssignments(assignmentList);
+    } catch {
+      setError("Failed to load lessons and assignments.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const saveLesson = useCallback(async (lessonId, payload, file) => {
+    setSaving(true);
+    try {
+      const saved = await elearningSvc.saveLesson(lessonId, payload, file);
+      setLessons((current) => lessonId
+        ? current.map((item) => item.id === lessonId ? saved : item)
+        : [saved, ...current]);
+      setSuccess(lessonId ? "Lesson updated successfully." : "Lesson published successfully.");
+      return saved;
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  const deleteLesson = useCallback(async (lessonId) => {
+    await elearningSvc.deleteLesson(lessonId);
+    setLessons((current) => current.filter((item) => item.id !== lessonId));
+    setSuccess("Lesson deleted.");
+  }, []);
+
+  const saveAssignment = useCallback(async (assignmentId, payload, file) => {
+    setSaving(true);
+    try {
+      const saved = await elearningSvc.saveAssignment(assignmentId, payload, file);
+      setAssignments((current) => assignmentId
+        ? current.map((item) => item.id === assignmentId ? saved : item)
+        : [saved, ...current]);
+      setSuccess(assignmentId ? "Assignment updated successfully." : "Assignment published successfully.");
+      return saved;
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  const deleteAssignment = useCallback(async (assignmentId) => {
+    await elearningSvc.deleteAssignment(assignmentId);
+    setAssignments((current) => current.filter((item) => item.id !== assignmentId));
+    setSubmissions((current) => current.filter((item) => item.assignment !== assignmentId));
+    setSuccess("Assignment deleted.");
+  }, []);
+
+  const loadSubmissions = useCallback(async (assignmentId) => {
+    setError("");
+    try {
+      const list = await elearningSvc.fetchSubmissions(assignmentId);
+      setSubmissions(list);
+      return list;
+    } catch {
+      setError("Failed to load student submissions.");
+      return [];
+    }
+  }, []);
+
+  const gradeSubmission = useCallback(async (submissionId, score, feedback) => {
+    const saved = await elearningSvc.gradeSubmission(submissionId, score, feedback);
+    setSubmissions((current) => current.map((item) => item.id === submissionId ? saved : item));
+    setSuccess("Submission graded successfully.");
+    return saved;
+  }, []);
+
+  return {
+    lessons, assignments, submissions, loading, saving, error, success,
+    setError, setSuccess, load, saveLesson, deleteLesson, saveAssignment,
+    deleteAssignment, loadSubmissions, gradeSubmission,
   };
 }
 

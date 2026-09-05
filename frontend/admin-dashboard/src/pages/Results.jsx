@@ -119,7 +119,6 @@ const calcCAonly       = (b) => {
 };
 const calcMGTScore    = (b) => Math.round(Math.min(15, parseFloat(b.mgt_raw) || 0) * 10) / 10;
 const calcCAScore     = (b) => Math.round((calcCAonly(b) + calcMGTScore(b)) * 10) / 10;
-const calcExamsScore  = (b) => Math.round(((parseFloat(b.exam_raw) || 0) / 100) * 40 * 10) / 10;
 
 /* ─────────────────────────────────────────────
    Empty student state factory
@@ -1145,7 +1144,7 @@ function ExamsModal({ studentName, initial, savedScore, onApply, onClose }) {
    ScoreCell — extracted, memoized
 ───────────────────────────────────────────── */
 const ScoreCell = React.memo(function ScoreCell({
-  field, value, savedValue, breakdown, breakdownLabel,
+  value, savedValue, breakdown, breakdownLabel,
   max, onOpen,
 }) {
   const isDirty    = String(value ?? "") !== String(savedValue ?? "") && value !== "";

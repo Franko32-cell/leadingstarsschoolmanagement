@@ -447,7 +447,7 @@ const Subjects = () => {
                         </div>
                       </td>
                     </tr>
-                  ) : filtered.map((s, i) => (
+                  ) : filtered.map((s) => (
                     <tr key={s.id}>
                       <td>
                         <div className="subj-cell">

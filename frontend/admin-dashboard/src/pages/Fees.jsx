@@ -24,8 +24,8 @@ const emptyAssign = { amount: "", book_user_fee: "", workbook_fee: "", arrears: 
 // that same file on your backend's domain, e.g.:
 //   "https://your-backend.onrender.com/static/images/logo.jpeg"
 const SCHOOL_INFO = {
-  name: "BETHEL STAR ACADEMY",
-  tagline: "POWER KNOWLEDGE WISDOM",
+  name: "LEADING STARS ACADEMY",
+  tagline: "WHERE LEADERS ARE BORN",
   address: "P.O. Box 000, Accra, Ghana",
   phone: "0000 000 000",
   logoUrl: "",
