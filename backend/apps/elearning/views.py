@@ -46,6 +46,21 @@ class ElearningViewSetMixin:
 class ContentViewSet(ElearningViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [ContentPermission]
 
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()
+        if self._role() == "teacher":
+            teacher = self._teacher()
+            if not teacher or not teacher.school_class_id:
+                return Response(
+                    {"detail": "Your teacher profile is not assigned to a class."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            data["school_class"] = teacher.school_class_id
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
     def get_queryset(self):
         queryset = self.queryset.select_related("school_class", "subject", "teacher__user")
         role = self._role()
