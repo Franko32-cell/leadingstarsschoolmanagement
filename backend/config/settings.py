@@ -20,7 +20,15 @@ if DEBUG:
 else:
     SECRET_KEY = os.environ["SECRET_KEY"]
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", ".onrender.com,.netlify.app,localhost,127.0.0.1").split(",")
+configured_hosts = {
+    host.strip()
+    for host in os.getenv("ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+}
+ALLOWED_HOSTS = sorted(
+    configured_hosts
+    | {".onrender.com", ".netlify.app", "localhost", "127.0.0.1", "testserver"}
+)
 
 
 # ── Installed Apps ─────────────────────────────────────────────
