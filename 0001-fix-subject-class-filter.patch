@@ -1,0 +1,92 @@
+From 0b496e150352d0f28ac807dbd8b9feb1ba60d507 Mon Sep 17 00:00:00 2001
+From: Claude Assistant <assistant@example.com>
+Date: Sat, 5 Sep 2026 23:26:52 +0000
+Subject: [PATCH] Fix intermittent 400 on assignment creation: scope subjects
+ to teacher's class
+
+Root cause: /subjects/ returned every subject in the school regardless of
+class, so the teacher portal's Assignment/Lesson form let teachers pick a
+subject belonging to a different class. The serializer correctly rejects
+that cross-class combination, causing a 400 on POST /api/assignments/.
+
+- SubjectViewSet now filters by ?school_class= query param
+- fetchSubjects/loadSubjects accept and forward the teacher's class id
+- TeacherPortal loads (and reloads) subjects scoped to the selected class
+---
+ backend/apps/subjects/views.py                           | 9 ++++++++-
+ frontend/admin-dashboard/src/pages/teacher/Hooks.jsx     | 4 ++--
+ .../admin-dashboard/src/pages/teacher/TeacherPortal.jsx  | 7 +++++--
+ .../src/pages/teacher/Teacherportalservice.jsx           | 5 +++--
+ 4 files changed, 18 insertions(+), 7 deletions(-)
+
+diff --git a/backend/apps/subjects/views.py b/backend/apps/subjects/views.py
+index 0fa99e6..371b7c0 100644
+--- a/backend/apps/subjects/views.py
++++ b/backend/apps/subjects/views.py
+@@ -6,4 +6,11 @@ from .serializers import SubjectSerializer
+ class SubjectViewSet(ModelViewSet):
+ 
+     queryset = Subject.objects.all().order_by("name")
+-    serializer_class = SubjectSerializer
+\ No newline at end of file
++    serializer_class = SubjectSerializer
++
++    def get_queryset(self):
++        queryset = super().get_queryset()
++        school_class = self.request.query_params.get("school_class")
++        if school_class:
++            queryset = queryset.filter(school_class_id=school_class)
++        return queryset
+\ No newline at end of file
+diff --git a/frontend/admin-dashboard/src/pages/teacher/Hooks.jsx b/frontend/admin-dashboard/src/pages/teacher/Hooks.jsx
+index 80fd9fa..ca10808 100644
+--- a/frontend/admin-dashboard/src/pages/teacher/Hooks.jsx
++++ b/frontend/admin-dashboard/src/pages/teacher/Hooks.jsx
+@@ -34,9 +34,9 @@ export function useTeacherData(initialClassId = "", initialClassName = "") {
+     }
+   }, []);
+ 
+-  const loadSubjects = useCallback(async () => {
++  const loadSubjects = useCallback(async (classId) => {
+     try {
+-      setSubjects(await svc.fetchSubjects());
++      setSubjects(await svc.fetchSubjects(classId));
+     } catch {
+       // Subjects are non-critical; fail silently
+     }
+diff --git a/frontend/admin-dashboard/src/pages/teacher/TeacherPortal.jsx b/frontend/admin-dashboard/src/pages/teacher/TeacherPortal.jsx
+index 7857618..721ad67 100644
+--- a/frontend/admin-dashboard/src/pages/teacher/TeacherPortal.jsx
++++ b/frontend/admin-dashboard/src/pages/teacher/TeacherPortal.jsx
+@@ -87,8 +87,11 @@ const TeacherPortal = () => {
+   // ── Boot ────────────────────────────────────────────────────────────────
+   useEffect(() => {
+     teacherData.loadClasses();
+-    teacherData.loadSubjects();
+-  }, [teacherData.loadClasses, teacherData.loadSubjects]);
++  }, [teacherData.loadClasses]);
++
++  useEffect(() => {
++    teacherData.loadSubjects(teacherData.selectedClass);
++  }, [teacherData.loadSubjects, teacherData.selectedClass]);
+ 
+   useEffect(() => {
+     if (teacherData.selectedClass) {
+diff --git a/frontend/admin-dashboard/src/pages/teacher/Teacherportalservice.jsx b/frontend/admin-dashboard/src/pages/teacher/Teacherportalservice.jsx
+index f60aa06..6ed5809 100644
+--- a/frontend/admin-dashboard/src/pages/teacher/Teacherportalservice.jsx
++++ b/frontend/admin-dashboard/src/pages/teacher/Teacherportalservice.jsx
+@@ -13,8 +13,9 @@ export const fetchClasses = async () => {
+   return r.data.results ?? r.data;
+ };
+ 
+-export const fetchSubjects = async () => {
+-  const r = await API.get("/subjects/");
++export const fetchSubjects = async (classId) => {
++  const params = classId ? `?school_class=${classId}` : "";
++  const r = await API.get(`/subjects/${params}`);
+   return r.data.results ?? r.data;
+ };
+ 
+-- 
+2.43.0
