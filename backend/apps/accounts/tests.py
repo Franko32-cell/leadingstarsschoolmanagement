@@ -29,8 +29,11 @@ class LoginViewTests(APITestCase):
             teacher_id="LSAT-0001",
             user=self.teacher_user,
             school_class=self.school_class,
-            subject=self.subject,
         )
+        # CHANGE: `subject` was replaced by the `subjects` ManyToManyField —
+        # M2M relations can only be set after the instance has a primary key,
+        # so this can't be passed as a create() kwarg like the old FK could.
+        self.teacher.subjects.set([self.subject])
 
     def test_teacher_can_login_with_teacher_id_and_whitespace(self):
         response = self.client.post(

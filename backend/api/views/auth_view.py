@@ -211,14 +211,14 @@ class LoginView(APIView):
 
         elif user.role == "teacher":
             try:
-                teacher = Teacher.objects.select_related("school_class", "subject").get(user=user)
+                teacher = Teacher.objects.select_related("school_class").prefetch_related("subjects").get(user=user)
                 profile = {
                     "teacher_id": teacher.teacher_id,
                     "full_name":  teacher.full_name,
                     "class":      teacher.school_class.name if teacher.school_class else None,
                     "class_id":   teacher.school_class.id   if teacher.school_class else None,
-                    "subject":    teacher.subject.name      if teacher.subject       else None,
-                    "subject_id": teacher.subject.id        if teacher.subject       else None,
+                    "subjects":    [s.name for s in teacher.subjects.all()],
+                    "subject_ids": [s.id for s in teacher.subjects.all()],
                     "photo":      teacher.photo.url         if hasattr(teacher, "photo") and teacher.photo else None,
                 }
             except Teacher.DoesNotExist:
@@ -323,14 +323,14 @@ class MeView(APIView):
 
         elif user.role == "teacher":
             try:
-                teacher = Teacher.objects.select_related("school_class", "subject").get(user=user)
+                teacher = Teacher.objects.select_related("school_class").prefetch_related("subjects").get(user=user)
                 profile = {
                     "teacher_id": teacher.teacher_id,
                     "full_name":  teacher.full_name,
                     "class":      teacher.school_class.name if teacher.school_class else None,
                     "class_id":   teacher.school_class.id   if teacher.school_class else None,
-                    "subject":    teacher.subject.name      if teacher.subject       else None,
-                    "subject_id": teacher.subject.id        if teacher.subject       else None,
+                    "subjects":    [s.name for s in teacher.subjects.all()],
+                    "subject_ids": [s.id for s in teacher.subjects.all()],
                     "photo":      teacher.photo.url         if hasattr(teacher, "photo") and teacher.photo else None,
                 }
             except Teacher.DoesNotExist:

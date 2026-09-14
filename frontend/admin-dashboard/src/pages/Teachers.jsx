@@ -39,10 +39,21 @@ const Teachers = () => {
   const [deleteConfirm,   setDeleteConfirm]   = useState(null);
   const [search,          setSearch]          = useState("");
 
+  // NEW: editing support — which teacher (if any) is being edited, and an
+  // independent submitting flag so the edit modal's button state doesn't
+  // interfere with the "Add Teacher" form's own `creating` state.
+  const [editingTeacher,  setEditingTeacher]  = useState(null); // full teacher object, or null
+  const [editForm,        setEditForm]        = useState(null); // form fields while editing
+  const [updating,        setUpdating]        = useState(false);
+
+  // CHANGE: `subjects` is now an array of subject IDs (a teacher can teach
+  // more than one subject). `email` and `phone` are new contact fields.
   const [form, setForm] = useState({
     first_name:   "",
     last_name:    "",
-    subject:      "",
+    email:        "",
+    phone:        "",
+    subjects:     [],
     school_class: "",
     hire_date:    "",
   });
@@ -99,6 +110,21 @@ const Teachers = () => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
+  // NEW: toggles one subject id in/out of a subjects array — shared by both
+  // the create form and the edit form (pass the right setter in).
+  const toggleSubject = (setter, subjectId) => {
+    setter((prev) => {
+      const current = prev.subjects || [];
+      const exists  = current.includes(subjectId);
+      return {
+        ...prev,
+        subjects: exists
+          ? current.filter((id) => id !== subjectId)
+          : [...current, subjectId],
+      };
+    });
+  };
+
   const createTeacher = async (e) => {
     e.preventDefault();
     setCreating(true);
@@ -106,19 +132,76 @@ const Teachers = () => {
       const payload = {
         first_name:   form.first_name,
         last_name:    form.last_name,
-        subject:      Number(form.subject),
+        email:        form.email,
+        phone:        form.phone,
+        subjects:     form.subjects,
         school_class: Number(form.school_class),
         hire_date:    form.hire_date,
       };
       await API.post("/teachers/", payload);
       showToast("Teacher created successfully");
-      setForm({ first_name: "", last_name: "", subject: "", school_class: "", hire_date: "" });
+      setForm({ first_name: "", last_name: "", email: "", phone: "", subjects: [], school_class: "", hire_date: "" });
       loadTeachers();
     } catch (err) {
       showToast(err.response?.data?.detail || "Failed to create teacher", "error");
       console.error(err.response?.data);
     } finally {
       setCreating(false);
+    }
+  };
+
+  // ── Edit ─────────────────────────────────────────────────────────────────
+
+  // NEW: opens the edit modal pre-filled with the selected teacher's current
+  // values. `subjects` comes back from the API as an array of subject IDs.
+  const openEdit = (teacher) => {
+    setEditingTeacher(teacher);
+    setEditForm({
+      first_name:   teacher.first_name || "",
+      last_name:    teacher.last_name  || "",
+      email:        teacher.email      || "",
+      phone:        teacher.phone      || "",
+      subjects:     teacher.subjects   || [],
+      school_class: teacher.school_class ?? "",
+      hire_date:    teacher.hire_date  || "",
+    });
+  };
+
+  const closeEdit = () => {
+    setEditingTeacher(null);
+    setEditForm(null);
+  };
+
+  const handleEditChange = (e) => {
+    setEditForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
+  const updateTeacher = async (e) => {
+    e.preventDefault();
+    if (!editingTeacher) return;
+    setUpdating(true);
+    try {
+      const payload = {
+        first_name:   editForm.first_name,
+        last_name:    editForm.last_name,
+        email:        editForm.email,
+        phone:        editForm.phone,
+        subjects:     editForm.subjects,
+        school_class: editForm.school_class ? Number(editForm.school_class) : null,
+        hire_date:    editForm.hire_date || null,
+      };
+      // PATCH rather than PUT — a partial update is all that's needed here,
+      // and it avoids re-validating fields (like teacher_id) that aren't
+      // part of this form at all.
+      await API.patch(`/teachers/${editingTeacher.id}/`, payload);
+      showToast("Teacher updated successfully");
+      closeEdit();
+      loadTeachers();
+    } catch (err) {
+      showToast(err.response?.data?.detail || "Failed to update teacher", "error");
+      console.error(err.response?.data);
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -146,7 +229,9 @@ const Teachers = () => {
     return (
       t.teacher_name?.toLowerCase().includes(q) ||
       t.teacher_id?.toLowerCase().includes(q)   ||
-      t.subject_name?.toLowerCase().includes(q) ||
+      t.email?.toLowerCase().includes(q)        ||
+      t.phone?.toLowerCase().includes(q)        ||
+      t.subject_names?.some((name) => name.toLowerCase().includes(q)) ||
       t.class_name?.toLowerCase().includes(q)
     );
   });
@@ -398,6 +483,37 @@ const Teachers = () => {
         }
         .btn-danger:hover:not(:disabled) { background: #b91c1c; }
         .btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        /* Edit modal — wider than the delete-confirm modal to fit a form */
+        .modal-lg { max-width: 560px; text-align: left; }
+
+        /* Edit button (mirrors .btn-delete's shape, indigo instead of red) */
+        .btn-edit {
+          padding: 0.375rem 0.75rem; background: transparent;
+          border: 1.5px solid #c7d2fe; color: #4f46e5;
+          border-radius: 8px; font-size: 0.8rem; font-weight: 600;
+          font-family: 'Sora', sans-serif; cursor: pointer; transition: all 0.2s;
+          display: flex; align-items: center; gap: 0.375rem;
+        }
+        .btn-edit:hover { background: #eef2ff; border-color: #4f46e5; transform: translateY(-1px); }
+
+        /* Multiple-subject checkbox picker, used in both the create and
+           edit forms */
+        .subject-checkbox-grid {
+          display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+          gap: 0.5rem; max-height: 160px; overflow-y: auto;
+          border: 1.5px solid #e2e8f0; border-radius: 10px;
+          padding: 0.75rem; background: #f8fafc;
+        }
+        .subject-checkbox {
+          display: flex; align-items: center; gap: 0.5rem;
+          font-size: 0.8rem; color: #334155; cursor: pointer;
+        }
+        .subject-checkbox input { accent-color: #4f46e5; cursor: pointer; }
+        .subject-checkbox-empty { font-size: 0.8rem; color: #94a3b8; }
+
+        /* One badge per subject in the table, instead of a single string */
+        .subject-badge-list { display: flex; flex-wrap: wrap; gap: 0.375rem; }
       `}</style>
 
       <div className="teachers-root">
@@ -446,6 +562,130 @@ const Teachers = () => {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── Edit Teacher Modal ── */}
+        {editingTeacher && editForm && (
+          <div
+            className="overlay"
+            onClick={(e) => { if (e.target === e.currentTarget) closeEdit(); }}
+          >
+            <form
+              className="modal modal-lg"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="edit-modal-title"
+              onSubmit={updateTeacher}
+            >
+              <div className="modal-title" id="edit-modal-title" style={{ marginBottom: "1rem" }}>
+                Edit {editingTeacher.teacher_name}
+              </div>
+
+              <div className="form-grid">
+                <div className="field-group">
+                  <label className="field-label" htmlFor="edit_first_name">First Name</label>
+                  <input
+                    id="edit_first_name"
+                    className="field-input"
+                    type="text"
+                    name="first_name"
+                    value={editForm.first_name}
+                    onChange={handleEditChange}
+                    required
+                  />
+                </div>
+                <div className="field-group">
+                  <label className="field-label" htmlFor="edit_last_name">Last Name</label>
+                  <input
+                    id="edit_last_name"
+                    className="field-input"
+                    type="text"
+                    name="last_name"
+                    value={editForm.last_name}
+                    onChange={handleEditChange}
+                    required
+                  />
+                </div>
+                <div className="field-group">
+                  <label className="field-label" htmlFor="edit_email">Email</label>
+                  <input
+                    id="edit_email"
+                    className="field-input"
+                    type="email"
+                    name="email"
+                    value={editForm.email}
+                    onChange={handleEditChange}
+                  />
+                </div>
+                <div className="field-group">
+                  <label className="field-label" htmlFor="edit_phone">Phone Number</label>
+                  <input
+                    id="edit_phone"
+                    className="field-input"
+                    type="tel"
+                    name="phone"
+                    value={editForm.phone}
+                    onChange={handleEditChange}
+                  />
+                </div>
+                <div className="field-group">
+                  <label className="field-label" htmlFor="edit_hire_date">Hire Date</label>
+                  <input
+                    id="edit_hire_date"
+                    className="field-input"
+                    type="date"
+                    name="hire_date"
+                    max={todayStr}
+                    value={editForm.hire_date}
+                    onChange={handleEditChange}
+                  />
+                </div>
+                <div className="field-group">
+                  <label className="field-label" htmlFor="edit_school_class">Class</label>
+                  <select
+                    id="edit_school_class"
+                    className="field-select"
+                    name="school_class"
+                    value={editForm.school_class}
+                    onChange={handleEditChange}
+                  >
+                    <option value="">Select Class</option>
+                    {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="field-group" style={{ marginTop: "1rem" }}>
+                <label className="field-label">Subjects</label>
+                <div className="subject-checkbox-grid">
+                  {subjects.length === 0 ? (
+                    <div className="subject-checkbox-empty">No subjects available yet.</div>
+                  ) : subjects.map((s) => (
+                    <label key={s.id} className="subject-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={editForm.subjects.includes(s.id)}
+                        onChange={() => toggleSubject(setEditForm, s.id)}
+                      />
+                      {s.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: "1.5rem" }}>
+                <button type="button" className="btn-cancel" onClick={closeEdit} disabled={updating}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn-submit" style={{ flex: 1 }} disabled={updating}>
+                  {updating
+                    ? <><span className="btn-spinner" /> Saving…</>
+                    : "Save Changes"
+                  }
+                </button>
+              </div>
+            </form>
           </div>
         )}
 
@@ -523,6 +763,30 @@ const Teachers = () => {
                   />
                 </div>
                 <div className="field-group">
+                  <label className="field-label" htmlFor="email">Email</label>
+                  <input
+                    id="email"
+                    className="field-input"
+                    type="email"
+                    name="email"
+                    placeholder="e.g. naomi.obeng@school.edu"
+                    value={form.email}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div className="field-group">
+                  <label className="field-label" htmlFor="phone">Phone Number</label>
+                  <input
+                    id="phone"
+                    className="field-input"
+                    type="tel"
+                    name="phone"
+                    placeholder="e.g. 024 123 4567"
+                    value={form.phone}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div className="field-group">
                   <label className="field-label" htmlFor="hire_date">Hire Date</label>
                   {/* FIX: added max={todayStr} — future hire dates are not valid */}
                   <input
@@ -537,20 +801,6 @@ const Teachers = () => {
                   />
                 </div>
                 <div className="field-group">
-                  <label className="field-label" htmlFor="subject">Subject</label>
-                  <select
-                    id="subject"
-                    className="field-select"
-                    name="subject"
-                    value={form.subject}
-                    onChange={handleChange}
-                    required
-                  >
-                    <option value="">Select Subject</option>
-                    {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                </div>
-                <div className="field-group">
                   <label className="field-label" htmlFor="school_class">Class</label>
                   <select
                     id="school_class"
@@ -563,6 +813,28 @@ const Teachers = () => {
                     <option value="">Select Class</option>
                     {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
+                </div>
+              </div>
+
+              {/* CHANGE: subjects are now selected via checkboxes so a teacher
+                  can be assigned more than one — a native <select> only
+                  supports one value at a time (or an awkward ctrl-click
+                  multi-select), so this is clearer for most admins. */}
+              <div className="field-group" style={{ marginTop: "1rem" }}>
+                <label className="field-label">Subjects</label>
+                <div className="subject-checkbox-grid">
+                  {subjects.length === 0 ? (
+                    <div className="subject-checkbox-empty">No subjects available yet.</div>
+                  ) : subjects.map((s) => (
+                    <label key={s.id} className="subject-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={form.subjects.includes(s.id)}
+                        onChange={() => toggleSubject(setForm, s.id)}
+                      />
+                      {s.name}
+                    </label>
+                  ))}
                 </div>
               </div>
             </div>
@@ -612,7 +884,9 @@ const Teachers = () => {
                   <tr>
                     <th>Teacher</th>
                     <th>ID</th>
-                    <th>Subject</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Subjects</th>
                     <th>Class</th>
                     <th>Hire Date</th>
                     <th>Actions</th>
@@ -621,7 +895,7 @@ const Teachers = () => {
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={8}>
                         <div className="empty-state">
                           <div className="empty-icon" aria-hidden="true">👨‍🏫</div>
                           <div className="empty-text">
@@ -641,18 +915,42 @@ const Teachers = () => {
                         </div>
                       </td>
                       <td><span className="id-badge">{t.teacher_id}</span></td>
-                      <td><span className="subject-badge">{t.subject_name}</span></td>
-                      <td><span className="class-badge">{t.class_name}</span></td>
-                      <td><span className="date-text">{t.hire_date}</span></td>
+                      <td><span className="date-text">{t.email || "—"}</span></td>
+                      <td><span className="date-text">{t.phone || "—"}</span></td>
                       <td>
-                        <button
-                          className="btn-delete"
-                          onClick={() => setDeleteConfirm({ id: t.id, name: t.teacher_name })}
-                          disabled={deletingId === t.id}
-                          aria-label={`Remove ${t.teacher_name}`}
-                        >
-                          <span aria-hidden="true">🗑</span> Remove
-                        </button>
+                        {/* CHANGE: a teacher can have multiple subjects now,
+                            so this renders one badge per subject instead of
+                            a single subject-name string. */}
+                        {t.subject_names?.length ? (
+                          <div className="subject-badge-list">
+                            {t.subject_names.map((name) => (
+                              <span key={name} className="subject-badge">{name}</span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="date-text">—</span>
+                        )}
+                      </td>
+                      <td><span className="class-badge">{t.class_name || "—"}</span></td>
+                      <td><span className="date-text">{t.hire_date || "—"}</span></td>
+                      <td>
+                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                          <button
+                            className="btn-edit"
+                            onClick={() => openEdit(t)}
+                            aria-label={`Edit ${t.teacher_name}`}
+                          >
+                            <span aria-hidden="true">✎</span> Edit
+                          </button>
+                          <button
+                            className="btn-delete"
+                            onClick={() => setDeleteConfirm({ id: t.id, name: t.teacher_name })}
+                            disabled={deletingId === t.id}
+                            aria-label={`Remove ${t.teacher_name}`}
+                          >
+                            <span aria-hidden="true">🗑</span> Remove
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

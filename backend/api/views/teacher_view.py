@@ -23,7 +23,9 @@ from api.permissions.role_permissions import IsAdmin
 
 class TeacherFilter(FilterSet):
     school_class = CharFilter(field_name="school_class__id")
-    subject      = CharFilter(field_name="subject__id")
+    # CHANGE: `subject` is now a many-to-many relation (`subjects`), so this
+    # filters teachers who have the given subject anywhere in their list.
+    subject      = CharFilter(field_name="subjects__id")
 
     class Meta:
         model  = Teacher
@@ -40,7 +42,8 @@ class TeacherViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = (
             Teacher.objects
-            .select_related("user", "subject", "school_class")
+            .select_related("user", "school_class")
+            .prefetch_related("subjects")
             .all()
         )
         # Archived teachers are hidden from normal listings by default —

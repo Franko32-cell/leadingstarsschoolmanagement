@@ -14,17 +14,16 @@ class Teacher(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
     )
-    subject = models.ForeignKey(
+    # CHANGE: replaced the old single `subject` ForeignKey with a
+    # ManyToManyField so a teacher can be assigned more than one subject
+    # (e.g. a teacher who teaches both Math and Physics). related_name
+    # keeps the readable reverse lookup: subject.teachers.all().
+    subjects = models.ManyToManyField(
         Subject,
-        on_delete=models.SET_NULL,
-        null=True,
-        # IMPROVEMENT: blank=True lets forms/API omit the field without errors
-        # when a teacher isn't assigned a subject yet.
         blank=True,
-        # IMPROVEMENT: related_name makes reverse lookups readable:
-        # subject.teachers.all() instead of subject.teacher_set.all()
         related_name="teachers",
     )
+    phone = models.CharField(max_length=20, blank=True, default="")
     school_class = models.ForeignKey(
         SchoolClass,
         on_delete=models.SET_NULL,
