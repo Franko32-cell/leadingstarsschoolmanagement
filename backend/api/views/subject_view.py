@@ -7,6 +7,7 @@ class SubjectViewSet(viewsets.ModelViewSet):
 
     queryset = Subject.objects.all()
     serializer_class = SubjectSerializer
+    pagination_class = None
 
     def get_queryset(self):
         queryset = super().get_queryset()

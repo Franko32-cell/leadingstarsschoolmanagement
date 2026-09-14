@@ -16,9 +16,14 @@ class SubjectClassFilterApiTests(APITestCase):
         second_class = SchoolClass.objects.create(name="Basic 5", level="basic_1_6")
         first_subject = Subject.objects.create(name="Mathematics", school_class=first_class)
         Subject.objects.create(name="English", school_class=second_class)
+        Subject.objects.bulk_create([
+            Subject(name=f"Subject {index}", school_class=first_class)
+            for index in range(2, 6)
+        ])
         self.client.force_authenticate(user)
 
         response = self.client.get(reverse("subject-list"), {"school_class": first_class.id})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual([item["id"] for item in response.data], [first_subject.id])
+        self.assertEqual(len(response.data), 5)
+        self.assertIn(first_subject.id, [item["id"] for item in response.data])
