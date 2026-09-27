@@ -21,9 +21,10 @@ import {
   FaBell,
 } from "react-icons/fa";
 
-// Place the photo at src/assets/alumni-day.jpg (or update this import path
-// to wherever you keep it in the project).
-import alumniDay from "../assets/alumni-day.jpeg";
+// This file lives in public/assets/ (not src/assets/), so it's referenced
+// as a plain URL — Vite serves everything under public/ from the site root
+// and does not let you `import` it like a bundled module.
+const alumniDay = "/assets/alumni-day.jpeg";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
