@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 
-from apps.attendance.models import Attendance
+from apps.attendance.models import Attendance, SchoolCalendar
 from api.serializers.attendance_serializer import AttendanceSerializer
 
 
@@ -41,6 +41,12 @@ class AttendanceViewSet(ModelViewSet):
         if not all([student, date, term, school_class, status_val]):
             return Response(
                 {"error": "student, date, term, school_class and status are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if SchoolCalendar.is_non_school_day_for_date(date):
+            return Response(
+                {"error": "Attendance cannot be recorded because this date is a non-school day."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

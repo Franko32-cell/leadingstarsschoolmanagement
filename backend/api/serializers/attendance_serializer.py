@@ -4,7 +4,7 @@ import logging
 from django.utils import timezone
 from rest_framework import serializers
 
-from apps.attendance.models import Attendance
+from apps.attendance.models import Attendance, SchoolCalendar
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +43,15 @@ class AttendanceSerializer(serializers.ModelSerializer):
     # ------------------------------------------------------------------
 
     def validate_date(self, value):
-        """Reject future dates before anything else runs."""
+        """Reject future dates and non-school days before anything else runs."""
         if value > timezone.localdate():
             raise serializers.ValidationError(
                 "Attendance cannot be recorded for a future date."
+            )
+
+        if SchoolCalendar.is_non_school_day_for_date(value):
+            raise serializers.ValidationError(
+                "Attendance cannot be recorded because this date is a non-school day."
             )
         return value
 

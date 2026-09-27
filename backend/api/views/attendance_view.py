@@ -11,7 +11,7 @@ from django_filters.rest_framework import (
     NumberFilter,
 )
 
-from apps.attendance.models import Attendance
+from apps.attendance.models import Attendance, SchoolCalendar
 from api.serializers.attendance_serializer import AttendanceSerializer
 
 
@@ -110,6 +110,12 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         values for these fields, so there is no longer a mismatch between
         what was validated and what is saved.
         """
+        date_value = serializer.validated_data.get("date")
+        if date_value and SchoolCalendar.is_non_school_day_for_date(date_value):
+            raise PermissionDenied(
+                "Attendance cannot be recorded because this date is a non-school day."
+            )
+
         serializer.save(
             term=self._current_term(),
             year=self._current_year(),
@@ -123,6 +129,11 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         records edited later keep their original term/year.
         """
         instance = self.get_object()
+        date_value = serializer.validated_data.get("date", instance.date)
+        if date_value and SchoolCalendar.is_non_school_day_for_date(date_value):
+            raise PermissionDenied(
+                "Attendance cannot be recorded because this date is a non-school day."
+            )
 
         # Optional cross-class guard — uncomment and adapt to your auth model:
         #

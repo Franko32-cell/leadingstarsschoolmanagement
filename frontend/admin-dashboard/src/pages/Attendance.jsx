@@ -59,6 +59,17 @@ const STATUS_OPTIONS = [
     count: "text-amber-700 bg-amber-100",
     dot: "bg-amber-400",
   },
+  {
+    value: "excused",
+    label: "Excused",
+    icon: "✓",
+    active: "bg-violet-600 text-white ring-2 ring-violet-300 shadow-md",
+    inactive:
+      "bg-gray-100 text-gray-500 hover:bg-violet-50 hover:text-violet-700 hover:border-violet-200",
+    row: "bg-violet-50/60 border-l-4 border-violet-400",
+    count: "text-violet-700 bg-violet-100",
+    dot: "bg-violet-500",
+  },
 ];
 
 const TABS = ["Mark Attendance", "Student Summary"];

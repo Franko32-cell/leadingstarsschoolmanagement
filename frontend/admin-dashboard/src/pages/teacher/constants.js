@@ -65,11 +65,12 @@ export const TABS = [
   { key: "Announcements", icon: "📢", label: "Announcements" },
 ];
 
-export const STATUS_CYCLE  = { present: "absent", absent: "late", late: "present" };
+export const STATUS_CYCLE  = { present: "absent", absent: "late", late: "excused", excused: "present" };
 export const STATUS_CONFIG = {
   present: { dot: "bg-emerald-500", pill: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200", label: "Present" },
   absent:  { dot: "bg-red-500",     pill: "bg-red-50    text-red-700    ring-1 ring-red-200",        label: "Absent"  },
   late:    { dot: "bg-amber-400",   pill: "bg-amber-50  text-amber-700  ring-1 ring-amber-200",      label: "Late"    },
+  excused: { dot: "bg-violet-500", pill: "bg-violet-50 text-violet-700 ring-1 ring-violet-200", label: "Excused" },
 };
 
 export const todayStr = new Date().toISOString().split("T")[0];
