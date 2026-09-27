@@ -14,7 +14,7 @@ const Layout = () => {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-screen bg-[#050b16] text-slate-100">
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed((v) => !v)}
@@ -26,8 +26,10 @@ const Layout = () => {
           sidebarOpen={!collapsed}
         />
 
-        <main className="flex-1 p-6 overflow-auto bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30">
-          <Outlet />
+        <main className="flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(91,127,255,0.18),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(155,107,255,0.16),_transparent_25%),linear-gradient(180deg,#070d18_0%,#0a1220_100%)] p-6">
+          <div className="mx-auto max-w-[1600px]">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

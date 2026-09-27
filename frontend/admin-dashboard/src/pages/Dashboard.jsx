@@ -37,12 +37,12 @@ const rateColor = (pct) =>
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 const Skeleton = ({ className = "" }) => (
-  <div className={`animate-pulse bg-white/60 border border-white rounded-3xl ${className}`} />
+  <div className={`animate-pulse bg-slate-800/80 border border-white/10 rounded-3xl ${className}`} />
 );
 
 /* ---------- Glass surface base ---------- */
 const glassBase =
-  "bg-white/70 backdrop-blur-xl border border-white shadow-lg shadow-slate-200/60";
+  "bg-slate-900/75 backdrop-blur-xl border border-white/10 shadow-[0_24px_80px_rgba(15,23,42,0.42)]";
 
 /* ---------- KPI Card ---------- */
 const KpiCard = ({ label, value, sub, icon, accent, onClick, trend }) => (
@@ -51,14 +51,14 @@ const KpiCard = ({ label, value, sub, icon, accent, onClick, trend }) => (
     className={`
       group relative rounded-3xl overflow-hidden ${glassBase}
       transition-all duration-300
-      ${onClick ? "cursor-pointer hover:bg-white/90 hover:-translate-y-1" : ""}
+      ${onClick ? "cursor-pointer hover:bg-slate-800/80 hover:-translate-y-1" : ""}
     `}
   >
     <div className="relative p-6">
       <div className="flex items-start justify-between mb-4">
         <div
           className="w-12 h-12 rounded-2xl flex items-center justify-center"
-          style={{ background: `${accent}15`, border: `1px solid ${accent}30` }}
+          style={{ background: `${accent}22`, border: `1px solid ${accent}55` }}
         >
           <div className="text-lg" style={{ color: accent }}>{icon}</div>
         </div>
@@ -66,8 +66,8 @@ const KpiCard = ({ label, value, sub, icon, accent, onClick, trend }) => (
         {trend && (
           <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
             trend.direction === 'up'
-              ? 'bg-emerald-50 text-emerald-600'
-              : 'bg-red-50 text-red-600'
+              ? 'bg-emerald-500/15 text-emerald-300'
+              : 'bg-red-500/15 text-red-300'
           }`}>
             {trend.direction === 'up' ? <FaArrowUp className="text-[8px]" /> : <FaArrowDown className="text-[8px]" />}
             <span>{trend.value}</span>
@@ -75,22 +75,22 @@ const KpiCard = ({ label, value, sub, icon, accent, onClick, trend }) => (
         )}
       </div>
 
-      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
         {label}
       </p>
 
-      <p className="text-4xl font-bold text-slate-900 leading-none tracking-tight tabular-nums mb-3">
+      <p className="text-4xl font-bold text-white leading-none tracking-tight tabular-nums mb-3">
         {value}
       </p>
 
       {sub && (
-        <p className="text-xs text-slate-500 leading-relaxed">
+        <p className="text-xs text-slate-400 leading-relaxed">
           {sub}
         </p>
       )}
 
       {onClick && (
-        <div className="mt-5 pt-5 border-t border-slate-100 flex items-center justify-between">
+        <div className="mt-5 pt-5 border-t border-white/10 flex items-center justify-between">
           <span className="text-xs font-bold tracking-wide" style={{ color: accent }}>
             View details
           </span>
@@ -125,7 +125,7 @@ const Donut = ({ pct, color, size = 72, stroke = 8 }) => {
         transform={`rotate(-90 ${cx} ${cx})`}
         style={{ transition: "stroke-dashoffset 1s ease" }}
       />
-      <text x={cx} y={cx - 2} textAnchor="middle" fontSize="16" fontWeight="800" fill="#0F172A">
+      <text x={cx} y={cx - 2} textAnchor="middle" fontSize="16" fontWeight="800" fill="#E2E8F0">
         {pct}%
       </text>
       <text x={cx} y={cx + 11} textAnchor="middle" fontSize="7" fontWeight="600" fill="#94A3B8">
@@ -137,7 +137,7 @@ const Donut = ({ pct, color, size = 72, stroke = 8 }) => {
 
 /* ---------- Progress Bar ---------- */
 const ProgressBar = ({ value, color }) => (
-  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
     <div
       className="h-2 rounded-full transition-all duration-1000 ease-out"
       style={{ width: `${Math.min(value, 100)}%`, background: color }}
@@ -163,7 +163,7 @@ const SectionLabel = ({ children, icon }) => (
     <h2 className="text-xs font-bold text-slate-400 uppercase tracking-[0.18em]">
       {children}
     </h2>
-    <div className="flex-1 h-px bg-slate-200" />
+    <div className="flex-1 h-px bg-slate-700" />
   </div>
 );
 
@@ -174,7 +174,7 @@ const QuickActionCard = ({ label, description, path, accent, icon }) => {
     <button
       onClick={() => navigate(path)}
       className={`group relative rounded-2xl p-5 text-left overflow-hidden ${glassBase}
-        transition-all duration-300 hover:bg-white/90 hover:-translate-y-1`}
+        transition-all duration-300 hover:bg-slate-800/80 hover:-translate-y-1`}
     >
       <div
         className="w-11 h-11 rounded-xl flex items-center justify-center text-xl mb-4"
@@ -183,16 +183,16 @@ const QuickActionCard = ({ label, description, path, accent, icon }) => {
         {icon}
       </div>
 
-      <p className="text-sm font-bold text-slate-800 leading-snug mb-1">
+      <p className="text-sm font-bold text-white leading-snug mb-1">
         {label}
       </p>
       {description && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-400">
           {description}
         </p>
       )}
 
-      <FaArrowRight className="absolute bottom-5 right-5 text-xs text-slate-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300" />
+      <FaArrowRight className="absolute bottom-5 right-5 text-xs text-slate-300 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300" />
     </button>
   );
 };
@@ -204,14 +204,13 @@ const WelcomeBanner = ({ userName = "Admin" }) => {
     hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   return (
-    <div className="relative rounded-3xl overflow-hidden shadow-xl shadow-slate-200/70 min-h-[240px] flex items-end">
+    <div className="relative rounded-[28px] overflow-hidden shadow-[0_28px_80px_rgba(15,23,42,0.5)] min-h-[240px] flex items-end ring-1 ring-white/10">
       <img
         src={alumniDay}
         alt=""
         className="absolute inset-0 w-full h-full object-cover"
       />
-      {/* Brand-blue wash so white text stays legible over any part of the photo */}
-      <div className="absolute inset-0 bg-gradient-to-t from-[#0E1442]/92 via-[#1E2A78]/55 to-[#1E2A78]/10" />
+      <div className="absolute inset-0 bg-gradient-to-t from-[#080f1d]/95 via-[#101a30]/70 to-[#1e2d5a]/25" />
 
       <div className="relative w-full p-8 flex items-end justify-between gap-6">
         <div>
@@ -246,10 +245,10 @@ const MiniStatCard = ({ icon, label, value, accent }) => (
         <div className="text-lg" style={{ color: accent }}>{icon}</div>
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 truncate">
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1 truncate">
           {label}
         </p>
-        <p className="text-2xl font-bold text-slate-900 tracking-tight tabular-nums">
+        <p className="text-2xl font-bold text-white tracking-tight tabular-nums">
           {value}
         </p>
       </div>
@@ -325,8 +324,8 @@ const Dashboard = () => {
     day: "numeric",
   });
 
-  // Layout's <main> already supplies the shared light background and
-  // padding, so Dashboard renders straight into it with no extra shell.
+  // Layout's <main> already supplies the premium dark shell and
+  // spacing, so Dashboard renders directly into the shared surface.
 
   // ── Loading skeleton ──────────────────────────────────────────────────────
   if (loading) {
@@ -355,14 +354,14 @@ const Dashboard = () => {
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className={`w-full max-w-md rounded-3xl ${glassBase} p-8`}>
           <div className="flex flex-col items-center text-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center">
-              <FaExclamationTriangle className="text-red-500 text-xl" />
+            <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+              <FaExclamationTriangle className="text-red-400 text-xl" />
             </div>
             <div>
-              <p className="font-bold text-lg text-slate-800 mb-1">
+              <p className="font-bold text-lg text-white mb-1">
                 Something went wrong
               </p>
-              <p className="text-sm text-slate-500">{error}</p>
+              <p className="text-sm text-slate-400">{error}</p>
             </div>
             <button
               onClick={() => loadAll()}
@@ -394,8 +393,8 @@ const Dashboard = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            <button className={`relative w-11 h-11 rounded-xl flex items-center justify-center ${glassBase} hover:bg-white/90 transition-colors group`}>
-              <FaBell className="text-slate-500 group-hover:text-slate-800 transition-colors" />
+            <button className={`relative w-11 h-11 rounded-xl flex items-center justify-center ${glassBase} hover:bg-slate-800/80 transition-colors group`}>
+              <FaBell className="text-slate-300 group-hover:text-white transition-colors" />
               <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
                 3
               </span>
@@ -404,7 +403,7 @@ const Dashboard = () => {
             <button
               onClick={() => loadAll(true)}
               disabled={refreshing}
-              className={`flex items-center gap-2.5 text-sm font-bold text-slate-600 hover:text-slate-900 rounded-xl px-4 py-2.5 ${glassBase} hover:bg-white/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed`}
+              className={`flex items-center gap-2.5 text-sm font-bold text-slate-200 hover:text-white rounded-xl px-4 py-2.5 ${glassBase} hover:bg-slate-800/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed`}
             >
               <FaSync className={`text-xs ${refreshing ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline">Refresh</span>
@@ -511,13 +510,13 @@ const Dashboard = () => {
                 <div className="flex items-center gap-4">
                   <Donut pct={attPercent} color="#DC2626" />
                   <div className="flex-1">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
                       Attendance
                     </p>
-                    <p className="text-2xl font-bold text-slate-900 tracking-tight">
+                    <p className="text-2xl font-bold text-white tracking-tight">
                       {attPercent}%
                     </p>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-xs text-slate-400 mt-0.5">
                       {attStats.present} present
                     </p>
                   </div>
@@ -545,14 +544,14 @@ const Dashboard = () => {
         {feeStats && (
           <section>
             <SectionLabel icon={<FaMoneyBillWave />}>Fee collection progress</SectionLabel>
-            <div className={`rounded-3xl overflow-hidden ${glassBase}`}>
+            <div className={`rounded-3xl overflow-hidden ${glassBase} ring-1 ring-white/5`}>
               <div className="p-8 space-y-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-base font-bold text-slate-800">
+                    <p className="text-base font-bold text-white">
                       Overall Collection
                     </p>
-                    <p className="text-sm text-slate-500 mt-1">
+                    <p className="text-sm text-slate-400 mt-1">
                       {ghs(feeStats.total_paid)} of {ghs(feeStats.total_billed)}
                     </p>
                   </div>
@@ -570,17 +569,17 @@ const Dashboard = () => {
                 <ProgressBar value={collectionRate} color={rateColor(collectionRate)} />
 
                 {feeStats.term_breakdown?.length > 0 && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-100">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-700">
                     {feeStats.term_breakdown.map((t) => {
                       const pct = t.billed > 0 ? Math.round((t.paid / t.billed) * 100) : 0;
                       const col = rateColor(pct);
                       return (
                         <div
                           key={t.term}
-                          className="space-y-3 p-4 rounded-2xl bg-slate-50/80 border border-slate-100"
+                          className="space-y-3 p-4 rounded-2xl bg-slate-950/60 border border-white/5"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-sm font-bold text-slate-700">
+                            <span className="text-sm font-bold text-slate-200">
                               {t.label}
                             </span>
                             <span
@@ -592,8 +591,8 @@ const Dashboard = () => {
                           </div>
                           <ProgressBar value={pct} color={col} />
                           <div className="flex justify-between text-xs font-semibold">
-                            <span className="text-slate-600">{ghs(t.paid)}</span>
-                            <span className="text-slate-400">{ghs(t.billed)}</span>
+                            <span className="text-slate-300">{ghs(t.paid)}</span>
+                            <span className="text-slate-500">{ghs(t.billed)}</span>
                           </div>
                         </div>
                       );
@@ -601,7 +600,7 @@ const Dashboard = () => {
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-3 pt-6 border-t border-slate-100">
+                <div className="flex flex-wrap gap-3 pt-6 border-t border-slate-700">
                   <StatusPill
                     label={`${feeStats.fully_paid} Fully Paid`}
                     dotColor="#059669"
