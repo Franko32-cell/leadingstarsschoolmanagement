@@ -23,7 +23,7 @@ import {
 
 // Place the photo at src/assets/alumni-day.jpg (or update this import path
 // to wherever you keep it in the project).
-import alumniDay from "../assets/alumni-day.jpg";
+import alumniDay from "../assets/alumni-day.jpeg";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
