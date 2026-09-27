@@ -26,7 +26,10 @@ const Layout = () => {
           sidebarOpen={!collapsed}
         />
 
-        <main className="flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(91,127,255,0.18),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(155,107,255,0.16),_transparent_25%),linear-gradient(180deg,#070d18_0%,#0a1220_100%)] p-6">
+        <main
+          data-admin-shell="true"
+          className="flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(91,127,255,0.18),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(155,107,255,0.16),_transparent_25%),linear-gradient(180deg,#070d18_0%,#0a1220_100%)] p-6"
+        >
           <div className="mx-auto max-w-[1600px]">
             <Outlet />
           </div>

@@ -11,7 +11,77 @@ html {
 body {
   font-family: 'DM Sans', sans-serif;
   color: #1f2937;
-  background: #ffffff;
+  background: #050b16;
+}
+
+#root {
+  min-height: 100vh;
+  background: #050b16;
+}
+
+main[data-admin-shell="true"] {
+  color: #e2e8f0;
+}
+
+main[data-admin-shell="true"] .min-h-screen {
+  background: transparent !important;
+}
+
+main[data-admin-shell="true"] [class*="bg-white"],
+main[data-admin-shell="true"] [class*="bg-slate-50"],
+main[data-admin-shell="true"] [class*="bg-slate-100"],
+main[data-admin-shell="true"] [class*="bg-slate-200"],
+main[data-admin-shell="true"] [class*="bg-gray-50"],
+main[data-admin-shell="true"] [class*="bg-gray-100"] {
+  background-color: rgba(15, 23, 42, 0.74) !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+main[data-admin-shell="true"] [class*="text-slate-900"],
+main[data-admin-shell="true"] [class*="text-slate-800"],
+main[data-admin-shell="true"] [class*="text-slate-700"],
+main[data-admin-shell="true"] [class*="text-slate-600"],
+main[data-admin-shell="true"] [class*="text-slate-500"],
+main[data-admin-shell="true"] [class*="text-gray-800"],
+main[data-admin-shell="true"] [class*="text-gray-700"],
+main[data-admin-shell="true"] [class*="text-gray-600"],
+main[data-admin-shell="true"] [class*="text-gray-500"],
+main[data-admin-shell="true"] [class*="text-gray-400"] {
+  color: #e2e8f0 !important;
+}
+
+main[data-admin-shell="true"] [class*="border-slate-100"],
+main[data-admin-shell="true"] [class*="border-slate-200"],
+main[data-admin-shell="true"] [class*="border-slate-300"],
+main[data-admin-shell="true"] [class*="border-gray-100"],
+main[data-admin-shell="true"] [class*="border-gray-200"] {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+main[data-admin-shell="true"] .shadow-slate-200\/50,
+main[data-admin-shell="true"] .shadow-slate-200,
+main[data-admin-shell="true"] .shadow-lg {
+  box-shadow: 0 20px 40px rgba(2, 6, 23, 0.28) !important;
+}
+
+main[data-admin-shell="true"] input,
+main[data-admin-shell="true"] select,
+main[data-admin-shell="true"] textarea {
+  color: #e2e8f0 !important;
+  background-color: rgba(15, 23, 42, 0.76) !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+main[data-admin-shell="true"] input::placeholder,
+main[data-admin-shell="true"] textarea::placeholder {
+  color: rgba(148, 163, 184, 0.8) !important;
+}
+
+main[data-admin-shell="true"] .text-slate-400,
+main[data-admin-shell="true"] .text-gray-400,
+main[data-admin-shell="true"] .text-slate-500,
+main[data-admin-shell="true"] .text-gray-500 {
+  color: #cbd5e1 !important;
 }
 
 .font-display {
