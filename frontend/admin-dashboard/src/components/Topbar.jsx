@@ -22,9 +22,9 @@ const timeAgo = (iso) => {
 };
 
 const PRIORITY_CONFIG = {
-  critical: { dot: "bg-red-500",   label: "bg-red-50 text-red-600 ring-1 ring-red-200"       },
-  urgent:   { dot: "bg-amber-400", label: "bg-amber-50 text-amber-700 ring-1 ring-amber-200" },
-  normal:   { dot: "bg-slate-300", label: ""                                                  },
+  critical: { dot: "bg-[#FB7185]", label: "bg-[#FB7185]/10 text-[#FB7185] ring-1 ring-[#FB7185]/25" },
+  urgent:   { dot: "bg-[#F2A93B]", label: "bg-[#F2A93B]/10 text-[#F2A93B] ring-1 ring-[#F2A93B]/25" },
+  normal:   { dot: "bg-slate-500", label: ""                                                          },
 };
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
@@ -57,29 +57,29 @@ const SignOutIcon = () => (
 
 // ── NotificationPanel ──────────────────────────────────────────────────────────
 const NotificationPanel = ({ announcements, unread }) => (
-  <div className="absolute right-0 top-[calc(100%+8px)] w-80 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-dropdown">
-    <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-      <p className="text-sm font-bold text-slate-800">Announcements</p>
+  <div className="absolute right-0 top-[calc(100%+8px)] w-80 bg-[#0D1220]/95 backdrop-blur-2xl rounded-2xl shadow-2xl shadow-black/60 border border-white/10 overflow-hidden z-50 animate-dropdown">
+    <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+      <p className="text-sm font-bold text-white">Announcements</p>
       {unread > 0 && (
-        <span className="text-[11px] font-semibold bg-red-50 text-red-600 ring-1 ring-red-200 px-2 py-0.5 rounded-full">
+        <span className="text-[11px] font-semibold bg-[#FB7185]/10 text-[#FB7185] ring-1 ring-[#FB7185]/25 px-2 py-0.5 rounded-full">
           {unread} urgent
         </span>
       )}
     </div>
-    <div className="divide-y divide-slate-50 max-h-72 overflow-y-auto">
+    <div className="divide-y divide-white/5 max-h-72 overflow-y-auto">
       {announcements.length === 0 ? (
-        <p className="text-xs text-slate-400 text-center py-8">No announcements</p>
+        <p className="text-xs text-slate-500 text-center py-8">No announcements</p>
       ) : (
         announcements.map((a) => {
           const cfg = PRIORITY_CONFIG[a.priority] ?? PRIORITY_CONFIG.normal;
           return (
-            <div key={a.id} className="px-4 py-3 hover:bg-slate-50 transition-colors cursor-default">
+            <div key={a.id} className="px-4 py-3 hover:bg-white/5 transition-colors cursor-default">
               <div className="flex items-start gap-2.5">
                 <span className={`w-1.5 h-1.5 rounded-full mt-[5px] flex-shrink-0 ${cfg.dot}`} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-800 leading-snug truncate">{a.title}</p>
-                  <p className="text-xs text-slate-400 mt-0.5 line-clamp-1 leading-relaxed">{a.message}</p>
-                  <p className="text-[11px] text-slate-300 mt-1">{timeAgo(a.created_at)}</p>
+                  <p className="text-sm font-semibold text-slate-200 leading-snug truncate">{a.title}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 line-clamp-1 leading-relaxed">{a.message}</p>
+                  <p className="text-[11px] text-slate-600 mt-1">{timeAgo(a.created_at)}</p>
                 </div>
               </div>
             </div>
@@ -95,24 +95,24 @@ const MenuItem = ({ icon, label, onClick, danger }) => (
   <button
     onClick={onClick}
     className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors
-      ${danger ? "text-red-600 hover:bg-red-50 font-semibold" : "text-slate-600 hover:bg-slate-50 font-medium"}`}
+      ${danger ? "text-[#FB7185] hover:bg-[#FB7185]/10 font-semibold" : "text-slate-300 hover:bg-white/5 font-medium"}`}
   >
-    <span className={danger ? "text-red-500" : "text-slate-400"}>{icon}</span>
+    <span className={danger ? "text-[#FB7185]" : "text-slate-500"}>{icon}</span>
     {label}
   </button>
 );
 
 const UserMenu = ({ user, onSettingsClick }) => (
-  <div className="absolute right-0 top-[calc(100%+8px)] w-56 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-dropdown">
-    <div className="px-4 py-3.5 border-b border-slate-100 bg-slate-50/60">
-      <p className="text-sm font-bold text-slate-800 leading-tight">{user?.username}</p>
-      <p className="text-xs text-slate-400 mt-0.5">{user?.email || "Administrator"}</p>
+  <div className="absolute right-0 top-[calc(100%+8px)] w-56 bg-[#0D1220]/95 backdrop-blur-2xl rounded-2xl shadow-2xl shadow-black/60 border border-white/10 overflow-hidden z-50 animate-dropdown">
+    <div className="px-4 py-3.5 border-b border-white/10 bg-white/[0.03]">
+      <p className="text-sm font-bold text-white leading-tight">{user?.username}</p>
+      <p className="text-xs text-slate-500 mt-0.5">{user?.email || "Administrator"}</p>
     </div>
     <div className="py-1">
       <MenuItem icon={<ProfileIcon />} label="Profile" />
       <MenuItem icon={<SettingsIcon />} label="Settings" onClick={onSettingsClick} />
     </div>
-    <div className="border-t border-slate-100 py-1">
+    <div className="border-t border-white/10 py-1">
       <MenuItem icon={<SignOutIcon />} label="Sign out" danger onClick={logout} />
     </div>
   </div>
@@ -155,14 +155,14 @@ const Topbar = ({ onMenuToggle, sidebarOpen }) => {
   const initial = user?.username?.[0]?.toUpperCase() ?? "A";
 
   return (
-    <header className="h-14 bg-white border-b border-slate-100 flex items-center px-4 gap-3 z-30 sticky top-0">
+    <header className="h-14 bg-white/[0.04] backdrop-blur-2xl border-b border-white/10 flex items-center px-4 gap-3 z-30 sticky top-0">
 
       {/* ── Hamburger ── */}
       {onMenuToggle && (
         <button
           onClick={onMenuToggle}
           aria-label="Toggle menu"
-          className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors flex-shrink-0"
+          className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:bg-white/10 hover:text-white transition-colors flex-shrink-0"
         >
           <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
             {sidebarOpen ? (
@@ -181,22 +181,11 @@ const Topbar = ({ onMenuToggle, sidebarOpen }) => {
         </button>
       )}
 
-      {/* ── Brand ── */}
-      <div className="flex items-center gap-2.5 min-w-0">
-        <div className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0">
-          <span className="text-white text-[10px] font-black tracking-tight">LSA</span>
-        </div>
-        <div className="hidden sm:flex flex-col leading-none min-w-0">
-          <span className="text-[13px] font-bold text-slate-800 truncate">Leading Stars Academy</span>
-          <span className="text-[11px] text-slate-400 mt-0.5">Admin portal</span>
-        </div>
-      </div>
-
       {/* ── Greeting ── */}
-      <div className="hidden md:flex items-center ml-3 pl-3 border-l border-slate-100 flex-1 min-w-0">
-        <p className="text-sm text-slate-400 truncate">
+      <div className="hidden md:flex items-center flex-1 min-w-0">
+        <p className="text-sm text-slate-500 truncate">
           {timeGreeting()},{" "}
-          <span className="font-semibold text-slate-700">{user?.username ?? "Admin"}</span>
+          <span className="font-semibold text-slate-200">{user?.username ?? "Admin"}</span>
         </p>
       </div>
 
@@ -209,12 +198,12 @@ const Topbar = ({ onMenuToggle, sidebarOpen }) => {
             aria-label="Notifications"
             className={`relative w-9 h-9 flex items-center justify-center rounded-xl transition-colors
               ${notifOpen
-                ? "bg-slate-100 text-slate-700"
-                : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"}`}
+                ? "bg-white/10 text-white"
+                : "text-slate-400 hover:bg-white/10 hover:text-slate-200"}`}
           >
             <BellIcon />
             {unread > 0 && (
-              <span className="absolute top-1.5 right-1.5 min-w-[15px] h-[15px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-1 leading-none">
+              <span className="absolute top-1.5 right-1.5 min-w-[15px] h-[15px] bg-[#FB7185] text-[#1A0B0D] text-[9px] font-bold rounded-full flex items-center justify-center px-1 leading-none">
                 {unread > 9 ? "9+" : unread}
               </span>
             )}
@@ -223,24 +212,24 @@ const Topbar = ({ onMenuToggle, sidebarOpen }) => {
         </div>
 
         {/* ── Divider ── */}
-        <div className="w-px h-5 bg-slate-200 mx-1" />
+        <div className="w-px h-5 bg-white/10 mx-1" />
 
         {/* ── User ── */}
         <div className="relative" ref={dropRef}>
           <button
             onClick={() => { setDropdownOpen((v) => !v); setNotifOpen(false); }}
             className={`flex items-center gap-2 pl-1.5 pr-2 py-1.5 rounded-xl transition-colors
-              ${dropdownOpen ? "bg-slate-100" : "hover:bg-slate-100"}`}
+              ${dropdownOpen ? "bg-white/10" : "hover:bg-white/10"}`}
           >
-            <div className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#5B7FFF] to-[#9B6BFF] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
               {initial}
             </div>
             <div className="hidden sm:flex flex-col leading-none text-left">
-              <span className="text-[13px] font-bold text-slate-800">{user?.username ?? "Admin"}</span>
-              <span className="text-[11px] text-slate-400 mt-0.5 capitalize">{user?.role ?? "admin"}</span>
+              <span className="text-[13px] font-bold text-slate-100">{user?.username ?? "Admin"}</span>
+              <span className="text-[11px] text-slate-500 mt-0.5 capitalize">{user?.role ?? "admin"}</span>
             </div>
             <svg
-              className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 hidden sm:block ${dropdownOpen ? "rotate-180" : ""}`}
+              className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 hidden sm:block ${dropdownOpen ? "rotate-180" : ""}`}
               fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
