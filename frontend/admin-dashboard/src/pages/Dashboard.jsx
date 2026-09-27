@@ -325,13 +325,13 @@ const Dashboard = () => {
     day: "numeric",
   });
 
-  const shellClass =
-    "-m-6 p-6 min-h-[calc(100vh-3.5rem)] bg-gradient-to-br from-slate-50 via-blue-50/50 to-indigo-50/40";
+  // Layout's <main> already supplies the shared light background and
+  // padding, so Dashboard renders straight into it with no extra shell.
 
   // ── Loading skeleton ──────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className={`${shellClass} space-y-8`}>
+      <div className="space-y-8">
         <div className="max-w-7xl mx-auto space-y-6">
           <Skeleton className="h-60" />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -352,7 +352,7 @@ const Dashboard = () => {
   // ── Error state ───────────────────────────────────────────────────────────
   if (error) {
     return (
-      <div className={`${shellClass} flex items-center justify-center`}>
+      <div className="flex items-center justify-center min-h-[60vh]">
         <div className={`w-full max-w-md rounded-3xl ${glassBase} p-8`}>
           <div className="flex flex-col items-center text-center gap-4">
             <div className="w-14 h-14 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center">
@@ -377,8 +377,7 @@ const Dashboard = () => {
   }
 
   return (
-    <div className={shellClass}>
-      <div className="max-w-7xl mx-auto space-y-8 pb-2">
+    <div className="max-w-7xl mx-auto space-y-8 pb-2">
         {/* ── Header Controls ── */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -673,7 +672,6 @@ const Dashboard = () => {
           </div>
         </section>
       </div>
-    </div>
   );
 };
 
