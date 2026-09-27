@@ -371,24 +371,25 @@ const Sidebar = ({ collapsed, onToggle }) => {
       <aside
         className={`
           relative z-20 flex flex-col min-h-screen
-          bg-white/[0.04] backdrop-blur-2xl border-r border-white/10
+          bg-[linear-gradient(180deg,rgba(8,12,22,0.96),rgba(9,14,22,0.88))]
+          backdrop-blur-2xl border-r border-white/10 shadow-[0_0_0_1px_rgba(148,163,184,0.06),18px_0_40px_rgba(2,6,23,0.42)]
           transition-all duration-300 ease-in-out
           ${collapsed ? "w-16" : "w-64"}
         `}
       >
         {/* ── Brand ── */}
         <div
-          className={`flex items-center gap-3 px-4 py-5 border-b border-white/10 ${
+          className={`flex items-center gap-3 px-4 py-5 border-b border-white/10 bg-slate-950/30 ${
             collapsed ? "justify-center" : ""
           }`}
         >
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#5B7FFF] to-[#9B6BFF] flex items-center justify-center flex-shrink-0 shadow-lg shadow-[#5B7FFF]/30">
-            <span className="text-xs font-extrabold text-white">LS</span>
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#5B7FFF] via-[#7B6BFF] to-[#9B6BFF] flex items-center justify-center flex-shrink-0 shadow-[0_10px_20px_rgba(91,127,255,0.35)] ring-1 ring-white/10">
+            <span className="text-[10px] font-extrabold text-white">LS</span>
           </div>
           {!collapsed && (
             <div className="min-w-0">
               <p className="text-sm font-bold text-white leading-tight truncate">Leading Stars</p>
-              <p className="text-xs text-slate-500 leading-tight">Academy</p>
+              <p className="text-xs text-slate-400 leading-tight">Academy</p>
             </div>
           )}
         </div>
@@ -407,13 +408,13 @@ const Sidebar = ({ collapsed, onToggle }) => {
 
         {/* ── User pill ── */}
         {!collapsed && (
-          <div className="mx-3 mt-4 mb-2 px-3 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#5B7FFF] to-[#9B6BFF] flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+          <div className="mx-3 mt-4 mb-2 px-3 py-2.5 bg-slate-900/70 border border-white/10 rounded-xl flex items-center gap-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#5B7FFF] to-[#9B6BFF] flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ring-1 ring-white/10">
               {initials}
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold text-white truncate">{user?.username}</p>
-              <p className="text-[10px] text-slate-500 capitalize">{user?.role}</p>
+              <p className="text-[10px] text-slate-400 capitalize">{user?.role}</p>
             </div>
           </div>
         )}
@@ -422,9 +423,9 @@ const Sidebar = ({ collapsed, onToggle }) => {
         <button
           onClick={() => setShowActiveUsers(true)}
           title={collapsed ? "Active Users" : undefined}
-          className={`mx-2 mb-1 flex items-center gap-3 px-3 py-2.5 rounded-lg
-            text-[#34D399] hover:bg-[#34D399]/10 border border-[#34D399]/20
-            hover:border-[#34D399]/40 transition-all group text-sm
+          className={`mx-2 mb-1 flex items-center gap-3 px-3 py-2.5 rounded-xl
+            text-[#34D399] bg-slate-900/60 border border-[#34D399]/20
+            hover:bg-[#34D399]/10 hover:border-[#34D399]/35 transition-all group text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]
             ${collapsed ? "justify-center" : ""}
           `}
         >
@@ -461,13 +462,13 @@ const Sidebar = ({ collapsed, onToggle }) => {
         {/* ── Nav ── */}
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-5 scrollbar-thin">
           {NAV_SECTIONS.map((section) => (
-            <div key={section.heading}>
+            <div key={section.heading} className="space-y-1.5">
               {!collapsed && (
-                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest px-3 mb-1.5">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] px-3 mb-1.5">
                   {section.heading}
                 </p>
               )}
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {section.items.map((item) => {
                   const Icon  = item.icon;
                   const badge = item.badgeKey ? badges[item.badgeKey] : 0;
@@ -480,10 +481,10 @@ const Sidebar = ({ collapsed, onToggle }) => {
                       end={isEnd}
                       title={collapsed ? item.name : undefined}
                       className={({ isActive }) =>
-                        `relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all group ${
+                        `relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ease-out group ring-1 ring-transparent ${
                           isActive
-                            ? "bg-gradient-to-r from-[#5B7FFF] to-[#7C6BFF] text-white shadow-md shadow-[#5B7FFF]/25"
-                            : "text-slate-400 hover:bg-white/[0.06] hover:text-white"
+                            ? "bg-gradient-to-r from-[#5B7FFF] to-[#7B6BFF] text-white shadow-[0_12px_20px_rgba(91,127,255,0.22)] ring-white/5"
+                            : "text-slate-300 hover:bg-slate-800/70 hover:text-white hover:ring-white/5"
                         } ${collapsed ? "justify-center" : ""}`
                       }
                     >
@@ -536,8 +537,8 @@ const Sidebar = ({ collapsed, onToggle }) => {
           <button
             onClick={() => setShowLogoutModal(true)}
             title={collapsed ? "Sign Out" : undefined}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400
-              hover:bg-[#FB7185]/10 hover:text-[#FB7185] transition-all group text-sm
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300
+              bg-slate-900/60 border border-white/5 hover:bg-[#FB7185]/10 hover:text-[#FB7185] hover:border-[#FB7185]/20 transition-all group text-sm
               ${collapsed ? "" : "w-full"}
             `}
           >
