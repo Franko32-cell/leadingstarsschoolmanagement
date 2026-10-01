@@ -101,7 +101,7 @@ class AnalyticsDashboardView(APIView):
         att_qs = Attendance.objects.filter(term=term, year=year)
         att_agg = att_qs.aggregate(
             total=Count("id"),
-            present_or_late=Count("id", filter=Q(status__in=["present", "late"])),
+            present_or_late=Count("id", filter=Q(status__in=["present", "late", "excused"])),
         )
         attendance_total = att_agg["total"] or 0
         attendance_present = att_agg["present_or_late"] or 0
@@ -115,7 +115,7 @@ class AnalyticsDashboardView(APIView):
             att_qs.values("school_class__id", "school_class__name")
             .annotate(
                 total=Count("id"),
-                present_or_late=Count("id", filter=Q(status__in=["present", "late"])),
+                present_or_late=Count("id", filter=Q(status__in=["present", "late", "excused"])),
             )
             .order_by("school_class__name")
         )
@@ -289,7 +289,7 @@ class AttendanceDetailView(APIView):
 
         overall = qs.aggregate(
             total=Count("id"),
-            present_or_late=Count("id", filter=Q(status__in=["present", "late"])),
+            present_or_late=Count("id", filter=Q(status__in=["present", "late", "excused"])),
         )
         total = overall["total"] or 0
         present_or_late = overall["present_or_late"] or 0
@@ -301,12 +301,13 @@ class AttendanceDetailView(APIView):
                 total=Count("id"),
                 present=Count("id", filter=Q(status="present")),
                 late=Count("id", filter=Q(status="late")),
+                excused=Count("id", filter=Q(status="excused")),
                 absent=Count("id", filter=Q(status="absent")),
             )
             .order_by("date")
         )
         for row in daily_rows:
-            day_present_or_late = row["present"] + row["late"]
+            day_present_or_late = row["present"] + row["late"] + row["excused"]
             row["rate"] = (
                 round(day_present_or_late / row["total"] * 100, 1) if row["total"] else None
             )

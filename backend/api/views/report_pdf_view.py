@@ -325,7 +325,7 @@ def generate_student_report_pdf(student_id, term, year):
         .filter(student=student, term=term, year=year)
         .aggregate(
             total=Count("id"),
-            present=Count("id", filter=Q(status__in=["present", "late"])),
+                present=Count("id", filter=Q(status__in=["present", "late", "excused"])),
         )
     )
     total_days = att["total"] or 0

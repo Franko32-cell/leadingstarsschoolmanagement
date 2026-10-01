@@ -124,6 +124,44 @@ class ResultsApiTests(TestCase):
         self.assertEqual(response.data["attendance"], 1)
         self.assertEqual(response.data["total_score"], 24.0)
 
+    def test_report_endpoint_counts_excused_as_present(self):
+        Result.objects.create(
+            student=self.student,
+            subject=self.subject,
+            school_class=self.school_class,
+            term="term3",
+            year=settings.CURRENT_YEAR,
+            reopen=7,
+            ca=8,
+            exams=9,
+        )
+        Attendance.objects.create(
+            student=self.student,
+            school_class=self.school_class,
+            term="term3",
+            year=settings.CURRENT_YEAR,
+            date="2026-05-20",
+            status="excused",
+        )
+        Attendance.objects.create(
+            student=self.student,
+            school_class=self.school_class,
+            term="term3",
+            year=settings.CURRENT_YEAR,
+            date="2026-05-21",
+            status="absent",
+        )
+
+        response = self.client.get(
+            f"/api/report/student/{self.student.id}/",
+            {"term": "term3", "year": settings.CURRENT_YEAR},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["attendance_total"], 2)
+        self.assertEqual(response.data["attendance"], 1)
+        self.assertEqual(response.data["attendance_percent"], 50)
+
     def test_report_endpoint_returns_position_and_summary(self):
         student2 = Student.objects.create(
             user=get_user_model().objects.create_user(username="tester2", password="pass"),
