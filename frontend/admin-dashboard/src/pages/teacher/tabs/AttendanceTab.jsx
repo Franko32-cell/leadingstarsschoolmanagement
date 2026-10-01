@@ -8,11 +8,12 @@ const AttendanceTab = ({ students = [], loading = false, selectedClassName = "",
     present: Object.values(attendance).filter((status) => status === "present").length,
     absent: Object.values(attendance).filter((status) => status === "absent").length,
     late: Object.values(attendance).filter((status) => status === "late").length,
+    excused: Object.values(attendance).filter((status) => status === "excused").length,
   };
 
   const studentCount = students.length;
   const dateSummary = studentCount
-    ? `${statusCounts.present} present · ${statusCounts.absent} absent · ${statusCounts.late} late`
+    ? `${statusCounts.present} present · ${statusCounts.absent} absent · ${statusCounts.late} late · ${statusCounts.excused} excused`
     : "No students to mark attendance.";
 
   return (
@@ -24,7 +25,7 @@ const AttendanceTab = ({ students = [], loading = false, selectedClassName = "",
           <p className="text-sm text-slate-500">Date: {attDate}</p>
           <p className="text-sm text-slate-500 mt-2">{dateSummary}</p>
         </div>
-        <div className="grid grid-cols-3 gap-2 text-center text-sm">
+        <div className="grid grid-cols-2 gap-2 text-center text-sm sm:grid-cols-4">
           <div className="rounded-2xl bg-emerald-50 px-3 py-3 text-emerald-700">
             <div className="text-xs uppercase tracking-[0.24em]">Present</div>
             <div className="text-lg font-semibold">{statusCounts.present}</div>
@@ -36,6 +37,10 @@ const AttendanceTab = ({ students = [], loading = false, selectedClassName = "",
           <div className="rounded-2xl bg-amber-50 px-3 py-3 text-amber-700">
             <div className="text-xs uppercase tracking-[0.24em]">Late</div>
             <div className="text-lg font-semibold">{statusCounts.late}</div>
+          </div>
+          <div className="rounded-2xl bg-violet-50 px-3 py-3 text-violet-700">
+            <div className="text-xs uppercase tracking-[0.24em]">Excused</div>
+            <div className="text-lg font-semibold">{statusCounts.excused}</div>
           </div>
         </div>
       </div>
@@ -70,7 +75,7 @@ const AttendanceTab = ({ students = [], loading = false, selectedClassName = "",
       )}
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-slate-500">Tap each status pill to cycle through Present, Absent, and Late.</p>
+        <p className="text-sm text-slate-500">Tap each status pill to cycle through Present, Absent, Late, and Excused.</p>
         <button onClick={onSave} disabled={saving} className="inline-flex items-center justify-center rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
           {saving ? "Saving…" : "Save Attendance"}
         </button>

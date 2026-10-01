@@ -202,7 +202,7 @@ export function useAttendance() {
   }, []);
 
   const toggle = useCallback((id) => {
-    const cycle = { present: "absent", absent: "late", late: "present" };
+    const cycle = { present: "absent", absent: "late", late: "excused", excused: "present" };
     setAttendance((prev) => ({ ...prev, [id]: cycle[prev[id]] ?? "present" }));
   }, []);
 

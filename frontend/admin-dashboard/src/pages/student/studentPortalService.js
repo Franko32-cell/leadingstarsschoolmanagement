@@ -5,10 +5,12 @@
 
 import API from "../../services/api";
 
+const CURRENT_YEAR = Number(import.meta?.env?.VITE_CURRENT_YEAR ?? new Date().getFullYear());
+
 // ── Reports / results ────────────────────────────────────────────────────
 
 export const fetchStudentReport = async (studentId, term) => {
-  const r = await API.get(`/report/student/${studentId}/?term=${term}`);
+  const r = await API.get(`/report/student/${studentId}/?term=${term}&year=${CURRENT_YEAR}`);
   return r.data;
 };
 
@@ -27,7 +29,7 @@ export const downloadReportPDF = async (studentId, term) => {
 // ── Attendance ────────────────────────────────────────────────────────────
 
 export const fetchStudentAttendance = async (studentId, term) => {
-  const r = await API.get(`/attendance/?student=${studentId}&term=${term}&ordering=date`);
+  const r = await API.get(`/attendance/?student=${studentId}&term=${term}&year=${CURRENT_YEAR}&ordering=date`);
   return r.data.results ?? r.data;
 };
 
@@ -35,7 +37,7 @@ export const fetchStudentAttendance = async (studentId, term) => {
 
 export const fetchStudentCharAssessment = async (studentId, admissionNumber, term) => {
   const tryFetch = async (idValue) => {
-    const r = await API.get(`/character-assessment/?student=${idValue}&term=${term}`);
+    const r = await API.get(`/character-assessment/?student=${idValue}&term=${term}&year=${CURRENT_YEAR}`);
     const all = r.data?.results ?? (Array.isArray(r.data) ? r.data : []);
     if (!all.length) return null;
     all.sort((a, b) => {

@@ -586,6 +586,90 @@ const ConfirmDialog = ({ message, onConfirm, onCancel }) => (
   </div>
 );
 
+const StudentHistoryModal = ({ student, records, loading, error, onClose }) => {
+  if (!student) return null;
+
+  const summary = records.reduce(
+    (acc, record) => {
+      const status = record.status || "absent";
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    },
+    { present: 0, absent: 0, late: 0, excused: 0 }
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Attendance history for ${getStudentName(student)}`}
+    >
+      <div className="w-full max-w-2xl max-h-[80vh] overflow-hidden rounded-3xl bg-white shadow-2xl border border-slate-200">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.22em] text-slate-400 font-semibold">Student history</p>
+            <h2 className="mt-1 text-lg font-bold text-slate-800">{getStudentName(student)}</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-xl border border-slate-200 px-2.5 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
+            aria-label="Close student history"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="border-b border-slate-100 bg-slate-50 px-5 py-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {STATUS_OPTIONS.map((option) => (
+              <div key={option.value} className="rounded-xl bg-white px-3 py-2 text-center shadow-sm">
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">{option.label}</div>
+                <div className="mt-1 text-lg font-bold tabular-nums text-slate-700">{summary[option.value] || 0}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="overflow-y-auto p-5">
+          {loading && <Spinner text="Loading attendance history..." />}
+          {error && <Alert type="error" message={error} onDismiss={() => {}} />}
+
+          {!loading && !error && records.length === 0 && (
+            <div className="py-10 text-center text-sm text-slate-400">
+              No attendance records found for this student.
+            </div>
+          )}
+
+          {!loading && !error && records.length > 0 && (
+            <div className="space-y-2">
+              {records.map((record) => {
+                const meta = getStatusMeta(record.status) || getStatusMeta("absent");
+                return (
+                  <div
+                    key={record.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                  >
+                    <div>
+                      <div className="font-semibold text-slate-700">{formatDate(record.date)}</div>
+                      <div className="mt-1 text-[11px] uppercase tracking-wide text-slate-400">
+                        {record.term || "Term"} • {record.year || "—"}
+                      </div>
+                    </div>
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${meta.active || "bg-slate-200 text-slate-700"}`}>
+                      {meta.label || "Absent"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const Attendance = () => {
@@ -593,6 +677,10 @@ const Attendance = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [summarySearch, setSummarySearch] = useState("");
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [studentHistory, setStudentHistory] = useState([]);
+  const [studentHistoryLoading, setStudentHistoryLoading] = useState(false);
+  const [studentHistoryError, setStudentHistoryError] = useState("");
 
   const {
     students,
@@ -744,6 +832,31 @@ const Attendance = () => {
       });
     }
   }, []);
+
+  const openStudentHistory = useCallback(async (student) => {
+    if (!student || !selectedClass) return;
+    setSelectedStudent(student);
+    setStudentHistory([]);
+    setStudentHistoryError("");
+    setStudentHistoryLoading(true);
+
+    try {
+      const res = await API.get("/attendance/", {
+        params: {
+          student: student.id,
+          school_class: selectedClass,
+          ordering: "-date",
+        },
+      });
+
+      const results = res.data.results ?? res.data ?? [];
+      setStudentHistory(Array.isArray(results) ? results : []);
+    } catch {
+      setStudentHistoryError("Failed to load this student's attendance history.");
+    } finally {
+      setStudentHistoryLoading(false);
+    }
+  }, [selectedClass]);
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
@@ -991,6 +1104,18 @@ const Attendance = () => {
           onCancel={() => setConfirmDialog(null)}
         />
       )}
+
+      <StudentHistoryModal
+        student={selectedStudent}
+        records={studentHistory}
+        loading={studentHistoryLoading}
+        error={studentHistoryError}
+        onClose={() => {
+          setSelectedStudent(null);
+          setStudentHistory([]);
+          setStudentHistoryError("");
+        }}
+      />
 
       {/* Header */}
       <div className="mb-7 flex items-start justify-between gap-4">
@@ -1475,9 +1600,19 @@ const Attendance = () => {
                         return (
                           <tr
                             key={student.id}
-                            className={`transition-colors ${
-                              isAtRisk ? "bg-red-50/40" : "hover:bg-gray-50"
+                            className={`cursor-pointer transition-colors ${
+                              isAtRisk ? "bg-red-50/40 hover:bg-red-100/60" : "hover:bg-gray-50"
                             }`}
+                            onClick={() => openStudentHistory(student)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                openStudentHistory(student);
+                              }
+                            }}
+                            tabIndex={0}
+                            role="button"
+                            aria-label={`View attendance history for ${getStudentName(student)}`}
                           >
                             <td className="px-4 py-3 text-gray-300 text-xs">
                               {index + 1}
