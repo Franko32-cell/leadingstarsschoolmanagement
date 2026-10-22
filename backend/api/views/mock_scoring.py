@@ -29,9 +29,8 @@ BECE_SUBJECTS = [
         "religious and moral education", "religious and moral studies",
         "religious moral education", "rme",
     ]),
-    ("TWI", "Asante Twi", [
-        "asante twi", "asanti twi", "twi", "ghanaian language asante twi",
-        "ghanaian language",
+    ("GHL", "Ghanaian Language", [
+        "ghanaian language", "ghanaian language asante twi", "asante twi", "twi",
     ]),
     ("ICT", "Computing (ICT)", ["computing", "computing ict", "ict"]),
     ("CAD", "Creative Arts & Design", ["creative arts and design", "creative arts"]),
