@@ -29,7 +29,7 @@ BECE_SUBJECTS = [
         "religious and moral education", "religious and moral studies",
         "religious moral education", "rme",
     ]),
-    ("GHL", "Ghanaian Language", [
+    ("TWI", "Ghanaian Language", [
         "ghanaian language", "ghanaian language asante twi", "asante twi", "twi",
     ]),
     ("ICT", "Computing (ICT)", ["computing", "computing ict", "ict"]),
