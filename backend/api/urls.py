@@ -8,7 +8,6 @@ from api.views.teacher_view import TeacherViewSet
 from api.views.class_view import ClassViewSet
 from api.views.subject_view import SubjectViewSet
 from api.views.attendance_view import AttendanceViewSet
-from api.views.school_calendar_view import SchoolCalendarViewSet
 from api.views.result_view import ResultViewSet
 from api.views.fee_view import FeeViewSet, paystack_webhook
 from api.views.character_assessment_view import CharacterAssessmentViewSet
@@ -27,7 +26,6 @@ from api.views.report_pdf_view import StudentReportPDFView
 from api.views.bill_pdf_view import StudentFeeBillPDFView, ClassFeeBillPDFView
 from api.views.receipt_pdf_view import PaymentReceiptPDFView
 from api.views.admission_form_pdf_view import AdmissionFormPDFView
-from api.views.defaulters_pdf_view import DefaultersPDFView
 from api.views.accounts_view import (
     AccountsDashboardView,
     IncomeLedgerView,
@@ -46,6 +44,7 @@ from api.views.whatsapp_view import (
 from api.views.fee_whatsapp_view import (
     SendWhatsAppBillView, SendWhatsAppReceiptView, BulkSendWhatsAppBillsView,
 )
+from apps.elearning.views import AssignmentViewSet, LessonViewSet, SubmissionViewSet
 
 # --- Router Setup ---
 router = DefaultRouter()
@@ -54,7 +53,6 @@ router.register("teachers", TeacherViewSet, basename="teacher")
 router.register("classes", ClassViewSet)
 router.register("subjects", SubjectViewSet)
 router.register("attendance", AttendanceViewSet, basename="attendance")
-router.register("school-calendar", SchoolCalendarViewSet, basename="school-calendar")
 router.register("results", ResultViewSet)
 router.register("character-assessment", CharacterAssessmentViewSet, basename="character-assessment")
 router.register(r"fees", FeeViewSet, basename="fees")
@@ -62,6 +60,9 @@ router.register("announcements", AnnouncementViewSet)
 router.register("admissions", AdmissionViewSet)
 router.register("admin-approvals", AdminApprovalViewSet, basename="admin-approvals")
 router.register(r"mock-results", MockResultViewSet, basename="mock-results")
+router.register("lessons", LessonViewSet, basename="lesson")
+router.register("assignments", AssignmentViewSet, basename="assignment")
+router.register("submissions", SubmissionViewSet, basename="submission")
 
 # --- URL Patterns ---
 urlpatterns = [
@@ -73,7 +74,6 @@ urlpatterns = [
     path("fees/bill/student/<int:student_id>/", StudentFeeBillPDFView.as_view(), name="student-bill-pdf"),
     path("fees/bill/class/", ClassFeeBillPDFView.as_view(), name="class-bill-pdf"),
     path("fees/receipt/<int:transaction_id>/", PaymentReceiptPDFView.as_view(), name="payment-receipt-pdf"),
-    path("accounts/defaulters/pdf/", DefaultersPDFView.as_view(), name="defaulters-pdf"),
     path("report/student/<int:student_id>/", StudentReportView.as_view(), name="student-report"),
     path("report/student/<int:student_id>/pdf/", StudentReportPDFView.as_view(), name="student-report-pdf"),
     path("reports/<int:report_id>/send-whatsapp/", SendWhatsAppReportView.as_view(), name="send-whatsapp-report"),
