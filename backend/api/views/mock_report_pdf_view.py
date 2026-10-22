@@ -11,6 +11,10 @@ PDF output for Basic 9 mock exams, styled to match the term report card
 Best six = English, Mathematics, Social Studies, Integrated Science
 + the student's best two other subjects (see mock_scoring.py).
 
+School name and motto come from SCHOOL_NAMES / SCHOOL_MOTTOS in grades.py (the
+same source as the term report). If a class level has no entry there, the first
+configured entry is used, so no school name is hard-coded in this file.
+
 Both builders are plain functions (no request object) so other views can
 reuse them, same pattern as generate_student_report_pdf().
 """
@@ -79,6 +83,13 @@ def _level_for(school_class):
     return getattr(school_class, "level", "basic_7_9") if school_class else "basic_7_9"
 
 
+def _school_identity(level):
+    """(name, motto) for this class level, falling back to the first configured entry."""
+    name = SCHOOL_NAMES.get(level) or next(iter(SCHOOL_NAMES.values()), "SCHOOL")
+    motto = SCHOOL_MOTTOS.get(level) or next(iter(SCHOOL_MOTTOS.values()), "")
+    return name, motto
+
+
 def _slug(text, fallback="student"):
     slug = re.sub(r"[^A-Za-z0-9_-]+", "_", (text or "").strip()).strip("_")
     return slug or fallback
@@ -120,8 +131,7 @@ def _page_frame(canvas, doc):
 
 def _header_block(para, level, title, subtitle, right_cell, full_w):
     """Logo | school name + motto + title | photo, followed by accent bars."""
-    school_name = SCHOOL_NAMES.get(level, "BETHEL STAR ACADEMY")
-    school_motto = SCHOOL_MOTTOS.get(level, "POWER KNOWLEDGE WISDOM")
+    school_name, school_motto = _school_identity(level)
 
     logo = load_logo_flowable(width=22 * mm, height=22 * mm) or para("", 9)
     center = [
@@ -262,7 +272,7 @@ def generate_mock_student_pdf(student_id, mock, year):
         buffer, pagesize=A4,
         leftMargin=12 * mm, rightMargin=12 * mm, topMargin=12 * mm, bottomMargin=14 * mm,
         title=f"{mock_label} Report - {student.full_name}",
-        author=SCHOOL_NAMES.get(level, "BETHEL STAR ACADEMY"),
+        author=_school_identity(level)[0],
     )
     para = make_para(getSampleStyleSheet())
     FULL_W = A4[0] - 24 * mm
@@ -442,7 +452,7 @@ def generate_mock_class_pdf(class_id, mock, year):
         buffer, pagesize=page,
         leftMargin=12 * mm, rightMargin=12 * mm, topMargin=12 * mm, bottomMargin=14 * mm,
         title=f"{mock_label} Broadsheet - {class_name}",
-        author=SCHOOL_NAMES.get(level, "BETHEL STAR ACADEMY"),
+        author=_school_identity(level)[0],
     )
     para = make_para(getSampleStyleSheet())
     FULL_W = page[0] - 24 * mm
