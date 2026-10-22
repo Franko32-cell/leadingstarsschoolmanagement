@@ -52,7 +52,7 @@ const BECE_SUBJECTS = [
   { code: "SCI", label: "Integrated Science", aliases: ["integrated science", "science"] },
   { code: "SOC", label: "Social Studies", aliases: ["social studies"] },
   { code: "RME", label: "Religious & Moral Ed.", aliases: ["religious and moral education", "religious & moral education", "rme"] },
-  { code: "GHL", label: "Ghanaian Language", aliases: ["ghanaian language"] },
+  { code: "TWI", label: "Ghanaian Language", aliases: ["ghanaian language"] },
   { code: "ICT", label: "Computing (ICT)", aliases: ["computing", "computing (ict)", "ict"] },
   { code: "CAD", label: "Creative Arts & Design", aliases: ["creative arts and design", "creative arts & design", "creative arts"] },
   { code: "CTECH", label: "Career Technology", aliases: ["career technology"] },
