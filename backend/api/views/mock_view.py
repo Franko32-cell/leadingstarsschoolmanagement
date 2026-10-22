@@ -1,6 +1,9 @@
 """mock_view.py
 Basic 9 BECE-style mock exam results — deliberately separate from
 Result/result_view.py. See MockResult / GRADE_THRESHOLDS_MOCK docstrings for why.
+
+PDF downloads live in mock_report_pdf_view.py. The best-six rule (all four core
+subjects + best two others) lives in mock_scoring.py.
 """
 
 import logging
@@ -19,7 +22,8 @@ from apps.results.models import MockResult
 from apps.students.models import Student
 from api.serializers.mock_result_serializer import MockResultSerializer
 
-from .grades import get_mock_grade_and_remark, compute_mock_aggregate, MOCK_INTERP_ROWS
+from .grades import get_mock_grade_and_remark, MOCK_INTERP_ROWS
+from .mock_scoring import compute_mock_aggregate
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +113,11 @@ class MockReportView(APIView):
     Every mock the student has scores for, graded on the BECE scale, plus the
     best-six raw total and aggregate per mock — mirrors the sample sheet
     layout (one column-group per mock).
+
+    Best six = English, Mathematics, Social Studies and Integrated Science
+    plus the best two other subjects (see mock_scoring.compute_mock_aggregate).
+    Each mock also reports `core_missing` and `complete` so clients can flag a
+    provisional aggregate.
     """
     permission_classes = [IsAuthenticated]
 
@@ -137,21 +146,23 @@ class MockReportView(APIView):
         for mock_key in sorted(by_mock.keys()):
             rows = by_mock[mock_key]
             agg = compute_mock_aggregate(rows)
-            subjects = [
-                {
+            subjects = []
+            for row in rows:
+                grade, remark = get_mock_grade_and_remark(row["score"])
+                subjects.append({
                     "subject": row["subject"],
                     "score":   row["score"],
-                    "grade":   get_mock_grade_and_remark(row["score"])[0],
-                    "remark":  get_mock_grade_and_remark(row["score"])[1],
-                }
-                for row in rows
-            ]
+                    "grade":   grade,
+                    "remark":  remark,
+                })
             mocks_payload.append({
                 "mock":                mock_key,
                 "subjects":            subjects,
                 "raw_total_best_six":  agg["raw_total"],
                 "aggregate":           agg["aggregate"],
                 "best_six_subjects":   agg["best_six_subjects"],
+                "core_missing":        agg["core_missing"],
+                "complete":            agg["complete"],
             })
 
         return Response({
