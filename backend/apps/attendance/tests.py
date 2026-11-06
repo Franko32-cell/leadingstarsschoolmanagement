@@ -482,3 +482,109 @@ class CalendarApiTests(Base):
         self.assertEqual(len(d["non_school_days"]), 4)     # Tue, Wed, Sat, Sun
         r = self.client_for(self.admin).get(f"{CAL}days/", {"start": str(SUN), "end": str(MON)})
         self.assertEqual(r.status_code, 400)
+
+
+# ---------------------------------------------------------------------------
+# Term resolution from the attendance DATE (TermDates)
+# ---------------------------------------------------------------------------
+from io import StringIO
+
+from django.core.management import call_command
+
+from apps.attendance.models import TermDates
+
+
+class TermFromDateTests(Base):
+    """Regression: attendance recorded this term must not land in last term."""
+
+    def setUp(self):
+        super().setUp()
+        # Window that contains MON..FRI of last week, labelled Term 1 2026,
+        # while settings.CURRENT_TERM is deliberately a DIFFERENT term.
+        self.term_now = TermDates.objects.create(
+            term="term1", year=2026,
+            start_date=MON - timedelta(days=30), end_date=MON + timedelta(days=60),
+        )
+        self.term_past = TermDates.objects.create(
+            term="term3", year=2026,
+            start_date=MON - timedelta(days=200), end_date=MON - timedelta(days=60),
+        )
+
+    def test_create_stamps_term_from_date_not_settings(self):
+        with override_settings(CURRENT_TERM="term3", CURRENT_YEAR=2026):  # stale setting
+            r = self.client_for(self.t_a_user).post(
+                ATT, self.payload(self.s_a1, self.class_a, MON), format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        rec = Attendance.objects.get()
+        self.assertEqual((rec.term, rec.year), ("term1", 2026))
+
+    def test_falls_back_to_settings_when_no_term_covers_date(self):
+        TermDates.objects.all().delete()
+        with override_settings(CURRENT_TERM="term2", CURRENT_YEAR=2026):
+            r = self.client_for(self.t_a_user).post(
+                ATT, self.payload(self.s_a1, self.class_a, MON), format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(Attendance.objects.get().term, "term2")
+
+    def test_moving_a_record_to_another_term_restamps_it(self):
+        rec = self.mark(self.s_a1, self.class_a, MON)
+        rec.term, rec.year = "term1", 2026
+        rec.save()
+        # extend the past term so it covers a weekday just before Term 1 starts
+        past_day = self.term_now.start_date - timedelta(days=5)
+        while past_day.weekday() >= 5:
+            past_day -= timedelta(days=1)
+        self.term_past.end_date = self.term_now.start_date - timedelta(days=1)
+        self.term_past.save()
+        r = self.client_for(self.admin).patch(f"{ATT}{rec.id}/", {"date": str(past_day)}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        rec.refresh_from_db()
+        self.assertEqual((rec.term, rec.year), ("term3", 2026))
+
+    def test_report_attendance_uses_date_window_even_if_label_is_wrong(self):
+        rec = self.mark(self.s_a1, self.class_a, MON, "present")
+        Attendance.objects.filter(pk=rec.pk).update(term="term3", year=2026)  # the bug state
+        self.mark(self.s_a1, self.class_a, TUE, "absent")
+        Attendance.objects.filter(student=self.s_a1).update(term="term3", year=2026)
+
+        now = services.attendance_counts(services.term_attendance(self.s_a1, "term1", 2026))
+        past = services.attendance_counts(services.term_attendance(self.s_a1, "term3", 2026))
+        self.assertEqual(now["counted_days"], 2)   # both rows are in Term 1's dates
+        self.assertEqual(past["counted_days"], 0)  # and none leak into Term 3
+
+    def test_term_dates_cannot_overlap(self):
+        from django.core.exceptions import ValidationError
+        bad = TermDates(term="term2", year=2026,
+                        start_date=self.term_now.start_date, end_date=self.term_now.end_date)
+        with self.assertRaises(ValidationError):
+            bad.full_clean()
+
+
+class RepairCommandTests(Base):
+    def _wrong(self):
+        r = self.mark(self.s_a1, self.class_a, MON)
+        Attendance.objects.filter(pk=r.pk).update(term="term3", year=2026)
+        return r
+
+    def run_cmd(self, *args):
+        out = StringIO()
+        call_command("repair_attendance_terms", *args, stdout=out)
+        return out.getvalue()
+
+    def term_args(self):
+        return ["--term", "term1", "2026", str(MON - timedelta(days=10)), str(MON + timedelta(days=40))]
+
+    def test_dry_run_changes_nothing(self):
+        r = self._wrong()
+        out = self.run_cmd(*self.term_args(), "--dry-run")
+        r.refresh_from_db()
+        self.assertEqual(r.term, "term3")
+        self.assertIn("would be re-stamped", out)
+        self.assertFalse(TermDates.objects.exists())
+
+    def test_apply_restamps_and_saves_term_dates(self):
+        r = self._wrong()
+        self.run_cmd(*self.term_args())
+        r.refresh_from_db()
+        self.assertEqual((r.term, r.year), ("term1", 2026))
+        self.assertTrue(TermDates.objects.filter(term="term1", year=2026).exists())

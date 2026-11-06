@@ -20,7 +20,7 @@ from django.conf import settings
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from apps.attendance.models import SchoolCalendar
+from apps.attendance.models import Attendance, SchoolCalendar, TermDates
 
 SATURDAY, SUNDAY = 5, 6  # date.weekday()
 
@@ -151,3 +151,46 @@ def attendance_counts_by(qs, *group_fields, digits=2):
 
 def today():
     return timezone.localdate()
+
+
+# ---------------------------------------------------------------------------
+# Term resolution
+# ---------------------------------------------------------------------------
+
+def term_for_date(d: date):
+    """
+    (term, year) for a date, from the TermDates table.
+
+    Returns None when no TermDates row covers `d` (table not filled in yet,
+    or a date in the holidays between terms). Callers fall back to
+    settings.CURRENT_TERM / CURRENT_YEAR, so behaviour is unchanged until an
+    admin enters the term dates.
+    """
+    row = TermDates.objects.filter(start_date__lte=d, end_date__gte=d).first()
+    return (row.term, row.year) if row else None
+
+
+def term_stamp_for(d: date):
+    """(term, year) to store on an attendance row dated `d`."""
+    found = term_for_date(d)
+    if found:
+        return found
+    return (
+        getattr(settings, "CURRENT_TERM", "term1"),
+        getattr(settings, "CURRENT_YEAR", d.year),
+    )
+
+
+def term_attendance(student, term: str, year: int):
+    """
+    Attendance rows for one student in one term, for report cards.
+
+    When TermDates exists for (term, year) the rows are selected by DATE, so
+    a row that was stamped with the wrong term label still lands on the right
+    report. Without TermDates it falls back to the old term/year label match.
+    """
+    qs = Attendance.objects.filter(student=student)
+    window = TermDates.objects.filter(term=term, year=year).first()
+    if window:
+        return qs.filter(date__range=(window.start_date, window.end_date))
+    return qs.filter(term=term, year=year)

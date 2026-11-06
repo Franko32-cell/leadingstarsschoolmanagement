@@ -145,9 +145,12 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         ).exists():
             raise PermissionDenied("You can only mark attendance for your assigned class.")
 
+        # Term/year come from the attendance DATE (TermDates table); only if
+        # no term covers that date do we fall back to settings.CURRENT_*.
+        term, year = services.term_stamp_for(serializer.validated_data["date"])
         record = serializer.save(
-            term=getattr(settings, "CURRENT_TERM", "term1"),
-            year=getattr(settings, "CURRENT_YEAR", timezone.localdate().year),
+            term=term,
+            year=year,
             created_by=user,
             updated_by=user,
         )
@@ -170,7 +173,12 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("You can only edit attendance for your assigned class.")
 
         previous = {"status": instance.status, "date": instance.date.isoformat()}
-        record = serializer.save(updated_by=user)
+        extra = {}
+        new_date = serializer.validated_data.get("date")
+        if new_date and new_date != instance.date:
+            # Moving a record to another date can move it to another term.
+            extra["term"], extra["year"] = services.term_stamp_for(new_date)
+        record = serializer.save(updated_by=user, **extra)
         log_action(
             request=self.request,
             action=AuditLog.Action.ATTENDANCE_UPDATE,

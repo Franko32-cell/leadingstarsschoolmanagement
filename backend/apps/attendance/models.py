@@ -255,3 +255,61 @@ class SchoolCalendar(models.Model):
         super().clean()
         if self.start_date and self.end_date and self.end_date < self.start_date:
             raise ValidationError({"end_date": "End date cannot be before the start date."})
+
+
+# ---------------------------------------------------------------------------
+# Term dates
+# ---------------------------------------------------------------------------
+
+class TermDates(models.Model):
+    """
+    The real start / end dates of an academic term.
+
+    This is the source of truth for "which term does this date belong to".
+    Attendance is stamped from its own date against these rows, so the term
+    no longer depends on someone remembering to edit settings.CURRENT_TERM
+    on the first day of term. Manage the rows in the Django admin.
+
+    `year` is the label the school uses for the term (e.g. Term 3 2026 and
+    Term 1 2026 can both exist; they are told apart by term + dates).
+    """
+
+    year       = models.PositiveIntegerField(default=_get_current_year)
+    term       = models.CharField(max_length=10, choices=Attendance.Term.choices)
+    start_date = models.DateField()
+    end_date   = models.DateField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = "Term dates"
+        verbose_name_plural = "Term dates"
+        ordering = ["start_date"]
+        unique_together = [("year", "term")]
+        indexes = [models.Index(fields=["start_date", "end_date"])]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(end_date__gte=models.F("start_date")),
+                name="termdates_end_not_before_start",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.get_term_display()} {self.year} ({self.start_date} → {self.end_date})"
+
+    def clean(self):
+        super().clean()
+        if self.start_date and self.end_date:
+            if self.end_date < self.start_date:
+                raise ValidationError({"end_date": "End date cannot be before the start date."})
+            overlap = (
+                TermDates.objects
+                .filter(start_date__lte=self.end_date, end_date__gte=self.start_date)
+                .exclude(pk=self.pk)
+                .first()
+            )
+            if overlap:
+                raise ValidationError(
+                    f"These dates overlap with {overlap}. Terms cannot overlap."
+                )

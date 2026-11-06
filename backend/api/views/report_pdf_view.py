@@ -70,7 +70,7 @@ from rest_framework.views import APIView
 from apps.students.models import Student
 from apps.results.models import Result, Report
 from apps.attendance.models import Attendance
-from apps.attendance.services import attendance_counts
+from apps.attendance.services import attendance_counts, term_attendance
 
 from .grades import (
     has_promotion_fields,
@@ -322,7 +322,7 @@ def generate_student_report_pdf(student_id, term, year):
 
     # ── Attendance — single aggregate ───────────────────────────────
     att = attendance_counts(
-        Attendance.objects.filter(student=student, term=term, year=year),
+        term_attendance(student, term, year),
         digits=0,
     )
     total_days = att["counted_days"]
