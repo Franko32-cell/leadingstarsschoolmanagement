@@ -110,7 +110,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # ── School Term ────────────────────────────────────────────────
 
-CURRENT_TERM = "term3"
+CURRENT_TERM = "term1"
 CURRENT_YEAR = 2026
 
 

@@ -19,10 +19,10 @@ def _get_current_term() -> str:
     updates at the start of each term.
 
     Set in settings.py:
-        CURRENT_TERM = "term3"   # update at the start of each term
+        CURRENT_TERM = "term1"   # update at the start of each term
         CURRENT_YEAR = 2025
     """
-    return getattr(settings, "CURRENT_TERM", "term3")
+    return getattr(settings, "CURRENT_TERM", "term1")
 
 
 def _get_current_year() -> int:

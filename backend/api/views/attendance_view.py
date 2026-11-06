@@ -79,8 +79,8 @@ class AttendanceViewSet(viewsets.ModelViewSet):
     # ------------------------------------------------------------------
     @staticmethod
     def _current_term() -> str:
-        """Return the active term string from settings, e.g. 'term3'."""
-        return getattr(settings, "CURRENT_TERM", "term3")
+        """Return the active term string from settings, e.g. 'term1'."""
+        return getattr(settings, "CURRENT_TERM", "term1")
 
     @staticmethod
     def _current_year() -> int:

@@ -162,6 +162,31 @@ class ResultsApiTests(TestCase):
         self.assertEqual(response.data["attendance"], 1)
         self.assertEqual(response.data["attendance_percent"], 50)
 
+    def test_new_attendance_appears_in_current_term_report(self):
+        attendance_response = self.client.post(
+            "/api/attendance/",
+            {
+                "student": self.student.id,
+                "school_class": self.school_class.id,
+                "date": "2026-01-05",
+                "status": "present",
+            },
+            format="json",
+        )
+
+        self.assertEqual(attendance_response.status_code, 201)
+        self.assertEqual(attendance_response.data["term"], "term1")
+        self.assertEqual(attendance_response.data["year"], settings.CURRENT_YEAR)
+
+        report_response = self.client.get(
+            f"/api/report/student/{self.student.id}/",
+            {"term": "term1", "year": settings.CURRENT_YEAR},
+        )
+
+        self.assertEqual(report_response.status_code, 200)
+        self.assertEqual(report_response.data["attendance_total"], 1)
+        self.assertEqual(report_response.data["attendance"], 1)
+
     def test_report_endpoint_returns_position_and_summary(self):
         student2 = Student.objects.create(
             user=get_user_model().objects.create_user(username="tester2", password="pass"),

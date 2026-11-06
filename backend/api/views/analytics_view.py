@@ -48,7 +48,7 @@ User = get_user_model()
 
 
 def _current_term():
-    return getattr(settings, "CURRENT_TERM", "term3")
+    return getattr(settings, "CURRENT_TERM", "term1")
 
 
 def _current_year():
