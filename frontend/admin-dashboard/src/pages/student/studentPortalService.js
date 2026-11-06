@@ -88,7 +88,7 @@ export const fetchLessons = async ({ classId, subjectId, term, year }) => {
   const params = new URLSearchParams({ school_class: classId });
   if (subjectId) params.set("subject", subjectId);
   if (term)      params.set("term", term);
-  if (year)      params.set("year", String(year));
+  params.set("year", String(year ?? CURRENT_YEAR));
   const r = await API.get(`/lessons/?${params.toString()}`);
   return r.data.results ?? r.data;
 };
@@ -99,7 +99,7 @@ export const fetchAssignments = async ({ classId, subjectId, term, year }) => {
   const params = new URLSearchParams({ school_class: classId });
   if (subjectId) params.set("subject", subjectId);
   if (term)      params.set("term", term);
-  if (year)      params.set("year", String(year));
+  params.set("year", String(year ?? CURRENT_YEAR));
   const r = await API.get(`/assignments/?${params.toString()}`);
   return r.data.results ?? r.data;
 };
