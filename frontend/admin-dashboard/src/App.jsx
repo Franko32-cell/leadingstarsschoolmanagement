@@ -29,7 +29,7 @@ const Accounting = lazy(() => import("./pages/Accounting"));
 const PettyCash = lazy(() => import("./pages/PettyCash"));
 const Admissions = lazy(() => import("./pages/Admissions"));
 const Subjects = lazy(() => import("./pages/Subjects"));
-const Reports = lazy(() => import("./pages/admin/ReportsAnalytics"));
+const Reports = lazy(() => import("./pages/Reports"));
 const MockResults = lazy(() => import("./pages/MockResults"));
 const PreschoolAssessment = lazy(() => import("./pages/PreschoolAssessment"));
 const Elearning = lazy(() => import("./pages/Elearning"));
