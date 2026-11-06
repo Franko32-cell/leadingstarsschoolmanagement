@@ -22,6 +22,7 @@ const Teachers = lazy(() => import("./pages/Teachers"));
 const Classes = lazy(() => import("./pages/Classes"));
 const Results = lazy(() => import("./pages/Results"));
 const Attendance = lazy(() => import("./pages/Attendance"));
+const HolidayManagement = lazy(() => import("./pages/HolidayManagement"));
 const Announcements = lazy(() => import("./pages/Announcements"));
 const Fees = lazy(() => import("./pages/Fees"));
 const Accounts = lazy(() => import("./pages/Accounts"));
@@ -106,6 +107,7 @@ function App() {
               <Route path="admissions" element={<Admissions />} />
               <Route path="results" element={<Results />} />
               <Route path="attendance" element={<Attendance />} />
+              <Route path="school-calendar" element={<HolidayManagement />} />
               <Route path="subjects" element={<Subjects />} />
               <Route path="announcements" element={<Announcements />} />
               <Route path="mock-results" element={<MockResults />} />

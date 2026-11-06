@@ -4,13 +4,24 @@ import logging
 from django.utils import timezone
 from rest_framework import serializers
 
-from apps.attendance.models import Attendance, SchoolCalendar
+from apps.attendance.models import Attendance
+from apps.attendance.services import non_school_reason
 
 logger = logging.getLogger(__name__)
 
 
+def _user_label(user):
+    if not user:
+        return None
+    return user.get_full_name() or user.username
+
+
 class AttendanceSerializer(serializers.ModelSerializer):
-    student_name = serializers.SerializerMethodField()
+    student_name     = serializers.SerializerMethodField()
+    admission_number = serializers.CharField(source="student.admission_number", read_only=True)
+    class_name       = serializers.CharField(source="school_class.name", read_only=True)
+    created_by_name  = serializers.SerializerMethodField()
+    updated_by_name  = serializers.SerializerMethodField()
 
     class Meta:
         model  = Attendance
@@ -24,12 +35,23 @@ class AttendanceSerializer(serializers.ModelSerializer):
             "date",
             "status",
             "notes",
+            "admission_number",
+            "class_name",
+            "created_by",
+            "created_by_name",
+            "updated_by",
+            "updated_by_name",
+            "created_at",
+            "updated_at",
         ]
         # term and year are read-only — perform_create is the sole authority
         # for stamping them. Clients can read these values but cannot supply
         # conflicting ones that would cause validate() to see different values
         # than what actually gets saved.
-        read_only_fields = ["id", "student_name", "term", "year"]
+        read_only_fields = [
+            "id", "student_name", "term", "year",
+            "created_by", "updated_by", "created_at", "updated_at",
+        ]
 
     # ------------------------------------------------------------------
     # SerializerMethodField
@@ -38,20 +60,21 @@ class AttendanceSerializer(serializers.ModelSerializer):
     def get_student_name(self, obj):
         return str(obj.student)
 
+    def get_created_by_name(self, obj):
+        return _user_label(obj.created_by)
+
+    def get_updated_by_name(self, obj):
+        return _user_label(obj.updated_by)
+
     # ------------------------------------------------------------------
     # Field-level validation
     # ------------------------------------------------------------------
 
     def validate_date(self, value):
-        """Reject future dates and non-school days before anything else runs."""
+        """Reject future dates before anything else runs."""
         if value > timezone.localdate():
             raise serializers.ValidationError(
                 "Attendance cannot be recorded for a future date."
-            )
-
-        if SchoolCalendar.is_non_school_day_for_date(value):
-            raise serializers.ValidationError(
-                "Attendance cannot be recorded because this date is a non-school day."
             )
         return value
 
@@ -107,6 +130,28 @@ class AttendanceSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"student": "This student is not enrolled in the selected class."}
             )
+
+        # 1b — Non-school-day guard (holiday / closure / weekend). Enforced
+        # for new records and whenever an existing record's date changes, so
+        # old data on such dates can still be corrected or removed.
+        new_date = data.get("date")
+        if new_date and (self.instance is None or new_date != self.instance.date):
+            reason = non_school_reason(new_date)
+            if reason:
+                raise serializers.ValidationError({
+                    "date": (
+                        "Attendance cannot be recorded because this date is a "
+                        f"non-school day ({reason})."
+                    )
+                })
+
+        # 1c — New records only: no attendance for archived / inactive students.
+        if self.instance is None and student is not None:
+            acct = getattr(getattr(student, "user", None), "account_status", "active")
+            if acct in ("archived", "inactive"):
+                raise serializers.ValidationError(
+                    {"student": f"Cannot record attendance for a student whose account is {acct}."}
+                )
 
         # 2 — Django model validation (clean, unique_together, etc.)
         if self.instance:

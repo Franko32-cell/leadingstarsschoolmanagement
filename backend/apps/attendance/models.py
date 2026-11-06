@@ -30,94 +30,8 @@ def _get_current_year() -> int:
 
 
 # ---------------------------------------------------------------------------
-# School calendar / non-school-day tracker
+# Model
 # ---------------------------------------------------------------------------
-
-class SchoolCalendar(models.Model):
-    """Administrative holiday, break, and school-closure calendar."""
-
-    TERM_CHOICES = [
-        ("term1", "Term 1"),
-        ("term2", "Term 2"),
-        ("term3", "Term 3"),
-    ]
-
-    class EventType(models.TextChoices):
-        HOLIDAY = "holiday", "Holiday"
-        MID_TERM_BREAK = "mid_term_break", "Mid-Term Break"
-        VACATION = "vacation", "Vacation"
-        PUBLIC_HOLIDAY = "public_holiday", "Public Holiday"
-        SCHOOL_CLOSURE = "school_closure", "School Closure"
-        STAFF_TRAINING = "staff_training", "Staff Training"
-        SPECIAL_EVENT = "special_event", "Special Event"
-        OTHER = "other", "Other"
-
-    name = models.CharField(max_length=200)
-    event_type = models.CharField(
-        max_length=40,
-        choices=EventType.choices,
-        default=EventType.HOLIDAY,
-    )
-    year = models.PositiveIntegerField(default=_get_current_year)
-    term = models.CharField(
-        max_length=10,
-        choices=TERM_CHOICES,
-        blank=True,
-        null=True,
-    )
-    start_date = models.DateField()
-    end_date = models.DateField()
-    description = models.TextField(blank=True, default="")
-    is_school_day = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        verbose_name = "School Calendar"
-        verbose_name_plural = "School Calendar"
-        ordering = ["start_date", "name"]
-        indexes = [
-            models.Index(fields=["year", "term", "start_date"]),
-            models.Index(fields=["start_date", "end_date"]),
-        ]
-
-    def __str__(self):
-        return f"{self.name} ({self.start_date} to {self.end_date})"
-
-    @classmethod
-    def is_non_school_day_for_date(cls, target_date, *, year=None, term=None):
-        """Return True when a date is a weekend or an explicitly marked non-school day."""
-        if not target_date:
-            return False
-
-        if target_date.weekday() >= 5:
-            weekend_override = (
-                cls.objects.filter(
-                    start_date__lte=target_date,
-                    end_date__gte=target_date,
-                    is_school_day=True,
-                )
-            )
-            if year is not None:
-                weekend_override = weekend_override.filter(year=year)
-            if term:
-                weekend_override = weekend_override.filter(term=term)
-            return not weekend_override.exists()
-
-        queryset = cls.objects.filter(
-            start_date__lte=target_date,
-            end_date__gte=target_date,
-        )
-        if year is not None:
-            queryset = queryset.filter(year=year)
-        if term:
-            queryset = queryset.filter(term=term)
-
-        calendar_item = queryset.order_by("-is_school_day").first()
-        if calendar_item is None:
-            return False
-        return not calendar_item.is_school_day
-
 
 class Attendance(models.Model):
 
@@ -128,8 +42,8 @@ class Attendance(models.Model):
 
     class Status(models.TextChoices):
         PRESENT = "present", "Present"
-        ABSENT = "absent", "Absent"
-        LATE = "late", "Late"
+        ABSENT  = "absent",  "Absent"
+        LATE    = "late",    "Late"
         EXCUSED = "excused", "Excused"
 
     student = models.ForeignKey(
@@ -160,6 +74,22 @@ class Attendance(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Audit trail — who recorded / last changed the record. Nullable so that
+    # every pre-existing row stays valid; SET_NULL so deleting a user never
+    # deletes attendance history. Full change history lives in AuditLog.
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="attendance_created",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="attendance_updated",
+    )
+
     class Meta:
         verbose_name        = "Attendance"
         verbose_name_plural = "Attendances"
@@ -174,6 +104,7 @@ class Attendance(models.Model):
             # (class + term + year + status) avoids a sequential scan when
             # computing per-student attendance rates for a given term.
             models.Index(fields=["school_class", "term", "year", "status"]),
+            models.Index(fields=["year", "term", "date"]),
         ]
 
     def __str__(self):
@@ -191,11 +122,6 @@ class Attendance(models.Model):
                 {"date": "Attendance cannot be recorded for a future date."}
             )
 
-        if self.date and SchoolCalendar.is_non_school_day_for_date(self.date, year=self.year, term=self.term):
-            raise ValidationError(
-                {"date": "Attendance cannot be recorded because this date is a non-school day."}
-            )
-
         # IMPROVEMENT: validate year is a plausible school year so garbage
         # data from imports cannot slip through. Adjust the lower bound as
         # needed for historical data.
@@ -203,6 +129,18 @@ class Attendance(models.Model):
             raise ValidationError(
                 {"year": f"'{self.year}' is not a plausible school year."}
             )
+
+        # Non-school days (holidays, closures, weekends) never take attendance.
+        # Only checked for new rows so historic records on such dates can
+        # still be corrected or deleted by an admin; the API additionally
+        # checks whenever the date of an existing record is changed.
+        if self.date and self._state.adding:
+            from apps.attendance.services import non_school_reason
+            reason = non_school_reason(self.date)
+            if reason:
+                raise ValidationError(
+                    {"date": f"Attendance cannot be recorded because this date is a non-school day ({reason})."}
+                )
 
         valid_terms = {choice[0] for choice in self.Term.choices}
         if self.term not in valid_terms:
@@ -239,6 +177,81 @@ class Attendance(models.Model):
     # IMPROVEMENT: single helper used by views/serializers that need to check
     # "counts toward attendance rate" logic in one place.
     @property
+    def is_excused(self) -> bool:
+        return self.status == self.Status.EXCUSED
+
+    @property
     def counts_as_present(self) -> bool:
-        """Present, late, and excused entries count toward the attendance total."""
-        return self.status in (self.Status.PRESENT, self.Status.LATE, self.Status.EXCUSED)
+        """Present *and* late both count as attended. Excused days are
+        neither attended nor absent: they are left out of the rate."""
+        return self.status in (self.Status.PRESENT, self.Status.LATE)
+
+
+# ---------------------------------------------------------------------------
+# School calendar
+# ---------------------------------------------------------------------------
+
+class SchoolCalendar(models.Model):
+    """
+    A date (or inclusive date range) that changes whether school is in
+    session: holidays, breaks, closures — or, with is_school_day=True, a
+    special school day that overrides a weekend / holiday (e.g. a Saturday
+    make-up class).
+    """
+
+    class EventType(models.TextChoices):
+        HOLIDAY         = "holiday",         "Holiday"
+        MID_TERM_BREAK  = "mid_term_break",  "Mid-Term Break"
+        VACATION        = "vacation",        "Vacation"
+        PUBLIC_HOLIDAY  = "public_holiday",  "Public Holiday"
+        SCHOOL_CLOSURE  = "school_closure",  "School Closure"
+        STAFF_TRAINING  = "staff_training",  "Staff Training"
+        SPECIAL_EVENT   = "special_event",   "Special Event"
+        OTHER           = "other",           "Other"
+
+    name        = models.CharField(max_length=150)
+    event_type  = models.CharField(max_length=20, choices=EventType.choices, default=EventType.HOLIDAY)
+    start_date  = models.DateField()
+    end_date    = models.DateField()
+    is_school_day = models.BooleanField(
+        default=False,
+        help_text="Off (default): non-school day, no attendance. On: a school day that overrides a weekend/holiday.",
+    )
+    year        = models.PositiveIntegerField(default=_get_current_year, help_text="Academic year (e.g. 2026).")
+    term        = models.CharField(max_length=10, choices=Attendance.Term.choices, blank=True, default="")
+    description = models.TextField(blank=True, default="")
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="calendar_created",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="calendar_updated",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = "School calendar entry"
+        verbose_name_plural = "School calendar entries"
+        ordering = ["start_date", "end_date"]
+        indexes = [
+            models.Index(fields=["start_date", "end_date"]),
+            models.Index(fields=["year", "term"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(end_date__gte=models.F("start_date")),
+                name="schoolcalendar_end_not_before_start",
+            ),
+        ]
+
+    def __str__(self):
+        span = str(self.start_date) if self.start_date == self.end_date else f"{self.start_date} → {self.end_date}"
+        return f"{self.name} ({span})"
+
+    def clean(self):
+        super().clean()
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValidationError({"end_date": "End date cannot be before the start date."})

@@ -33,6 +33,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.attendance.models import Attendance
+from apps.attendance.services import attendance_counts, attendance_counts_by
 from apps.classes.models import SchoolClass
 from apps.results.models import Result
 from apps.fees.models import Fee
@@ -99,34 +100,26 @@ class AnalyticsDashboardView(APIView):
 
         # ── Attendance rate (this term/year) ────────────────────────────────
         att_qs = Attendance.objects.filter(term=term, year=year)
-        att_agg = att_qs.aggregate(
-            total=Count("id"),
-            present_or_late=Count("id", filter=Q(status__in=["present", "late", "excused"])),
-        )
-        attendance_total = att_agg["total"] or 0
-        attendance_present = att_agg["present_or_late"] or 0
+        att_agg = attendance_counts(att_qs, digits=1)
+        attendance_total = att_agg["counted_days"]
+        attendance_present = att_agg["attended"]
         attendance_rate = (
             round(attendance_present / attendance_total * 100, 1)
             if attendance_total
             else None
         )
 
-        attendance_by_class = list(
-            att_qs.values("school_class__id", "school_class__name")
-            .annotate(
-                total=Count("id"),
-                present_or_late=Count("id", filter=Q(status__in=["present", "late", "excused"])),
-            )
-            .order_by("school_class__name")
-        )
-        for row in attendance_by_class:
-            row["class_id"] = row.pop("school_class__id")
-            row["class_name"] = row.pop("school_class__name") or "Unassigned"
-            row["rate"] = (
-                round(row["present_or_late"] / row["total"] * 100, 1)
-                if row["total"]
-                else None
-            )
+        attendance_by_class = []
+        for row in attendance_counts_by(
+            att_qs, "school_class__id", "school_class__name", digits=1
+        ):
+            attendance_by_class.append({
+                "class_id": row["school_class__id"],
+                "class_name": row["school_class__name"] or "Unassigned",
+                "total": row["counted_days"],
+                "present_or_late": row["attended"],
+                "rate": row["percentage"],
+            })
 
         # ── Academic performance (this term/year) ───────────────────────────
         result_qs = Result.objects.filter(term=term, year=year)

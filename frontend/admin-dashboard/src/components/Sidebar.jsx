@@ -52,6 +52,7 @@ const NAV_SECTIONS = [
       { name: "Mock Results", path: "/admin/mock-results", icon: FaClipboardList },
       { name: "Preschool Assessment", path: "/admin/preschool-assessment", icon: FaGraduationCap },
       { name: "Attendance", path: "/admin/attendance", icon: FaCalendarCheck },
+      { name: "School Calendar", path: "/admin/school-calendar", icon: FaCalendarCheck },
       { name: "E-learning", path: "/admin/elearning", icon: FaGraduationCap },
       { name: "Reports",    path: "/admin/reports",    icon: FaChartBar      },
     ],

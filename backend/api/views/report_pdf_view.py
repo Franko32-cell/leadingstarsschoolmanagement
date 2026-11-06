@@ -70,6 +70,7 @@ from rest_framework.views import APIView
 from apps.students.models import Student
 from apps.results.models import Result, Report
 from apps.attendance.models import Attendance
+from apps.attendance.services import attendance_counts
 
 from .grades import (
     has_promotion_fields,
@@ -320,17 +321,13 @@ def generate_student_report_pdf(student_id, term, year):
     interp_rows = get_interp_rows(level)
 
     # ── Attendance — single aggregate ───────────────────────────────
-    att = (
-        Attendance.objects
-        .filter(student=student, term=term, year=year)
-        .aggregate(
-            total=Count("id"),
-                present=Count("id", filter=Q(status__in=["present", "late", "excused"])),
-        )
+    att = attendance_counts(
+        Attendance.objects.filter(student=student, term=term, year=year),
+        digits=0,
     )
-    total_days = att["total"] or 0
-    present_days = att["present"] or 0
-    att_percent = round((present_days / total_days) * 100) if total_days else 0
+    total_days = att["counted_days"]
+    present_days = att["attended"]
+    att_percent = att["percentage"] or 0
 
     # ── Class shown on the report (STAGE) ───────────────────────────
     # FIX: use the class the student was actually in when these
