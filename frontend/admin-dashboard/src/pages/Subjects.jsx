@@ -9,6 +9,10 @@ const Subjects = () => {
   const [toast, setToast] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [search, setSearch] = useState("");
+  const [selectedClass, setSelectedClass] = useState("");
+  const [editingSubject, setEditingSubject] = useState(null);
+  const [editedName, setEditedName] = useState("");
+  const [savingSubjectId, setSavingSubjectId] = useState(null);
 
   const [form, setForm] = useState({ name: "", school_class: "" });
 
@@ -24,14 +28,14 @@ const Subjects = () => {
   const loadSubjects = async () => {
     try {
       const res = await API.get("/subjects/");
-      setSubjects(res.data);
+      setSubjects(res.data.results || res.data);
     } catch (err) { console.error(err); }
   };
 
   const loadClasses = async () => {
     try {
       const res = await API.get("/classes/");
-      setClasses(res.data);
+      setClasses(res.data.results || res.data);
     } catch (err) { console.error(err); }
   };
 
@@ -65,13 +69,50 @@ const Subjects = () => {
     }
   };
 
+  const startEditing = (subject) => {
+    setEditingSubject(subject.id);
+    setEditedName(subject.name);
+  };
+
+  const saveSubjectName = async (e, subject) => {
+    e.preventDefault();
+    const name = editedName.trim();
+    if (!name) {
+      showToast("Subject name cannot be empty", "error");
+      return;
+    }
+
+    setSavingSubjectId(subject.id);
+    try {
+      const res = await API.patch(`/subjects/${subject.id}/`, { name });
+      setSubjects((current) =>
+        current.map((item) => item.id === subject.id ? { ...item, ...res.data } : item)
+      );
+      setEditingSubject(null);
+      showToast("Subject name updated successfully");
+    } catch (err) {
+      const message = err.response?.data?.name?.[0]
+        || err.response?.data?.detail
+        || err.response?.data?.non_field_errors?.[0]
+        || "Failed to update subject name";
+      showToast(message, "error");
+      console.error(err);
+    } finally {
+      setSavingSubjectId(null);
+    }
+  };
+
   const filtered = subjects.filter((s) => {
     const q = search.toLowerCase();
-    return s.name?.toLowerCase().includes(q) || s.class_name?.toLowerCase().includes(q);
+    const className = s.school_class_name || s.class_name || "";
+    return (
+      (!selectedClass || String(s.school_class) === selectedClass)
+      && (s.name?.toLowerCase().includes(q) || className.toLowerCase().includes(q))
+    );
   });
 
-  // Group subjects by class for the stats
-  const uniqueClasses = [...new Set(subjects.map((s) => s.class_name).filter(Boolean))];
+  const uniqueSubjectNames = new Set(subjects.map((s) => s.name?.trim().toLowerCase()).filter(Boolean));
+  const uniqueClasses = new Set(subjects.map((s) => s.school_class).filter(Boolean));
 
   const subjectColors = [
     "#4f46e5","#0891b2","#059669","#d97706","#dc2626","#7c3aed","#db2777","#0284c7",
@@ -243,6 +284,18 @@ const Subjects = () => {
           display: flex; align-items: center; gap: 0.375rem;
         }
         .subj-btn-delete:hover { background: #fef2f2; border-color: #dc2626; transform: translateY(-1px); }
+        .subj-btn-edit {
+          padding: 0.375rem 0.75rem; background: transparent;
+          border: 1.5px solid #a5f3fc; color: #0e7490;
+          border-radius: 8px; font-size: 0.8rem; font-weight: 600;
+          font-family: 'Sora', sans-serif; cursor: pointer; transition: all 0.2s;
+        }
+        .subj-btn-edit:hover { background: #ecfeff; border-color: #0891b2; }
+        .subj-btn-edit:disabled { opacity: 0.6; cursor: not-allowed; }
+        .subj-row-actions { display: flex; align-items: center; gap: 0.5rem; }
+        .subj-inline-edit { display: flex; align-items: center; gap: 0.5rem; }
+        .subj-inline-edit .subj-input { min-width: 150px; }
+        .subj-inline-edit .subj-btn-cancel { flex: 0 0 auto; padding: 0.375rem 0.75rem; }
 
         /* Empty */
         .subj-empty { padding: 3.5rem 1.5rem; text-align: center; color: #94a3b8; }
@@ -323,7 +376,9 @@ const Subjects = () => {
             <div className="subj-title-icon">📚</div>
             <div>
               Subjects
-              <div className="subj-page-subtitle">Manage subjects and their class assignments</div>
+              <div className="subj-page-subtitle">
+                Subjects are assigned per class, so the same name can appear more than once.
+              </div>
             </div>
           </div>
         </div>
@@ -333,7 +388,14 @@ const Subjects = () => {
           <div className="subj-stat-card">
             <div className="subj-stat-icon" style={{ background: "#ecfeff" }}>📚</div>
             <div>
-              <div className="subj-stat-label">Total Subjects</div>
+              <div className="subj-stat-label">Unique Subjects</div>
+              <div className="subj-stat-value">{uniqueSubjectNames.size}</div>
+            </div>
+          </div>
+          <div className="subj-stat-card">
+            <div className="subj-stat-icon" style={{ background: "#f0fdf4" }}>🗂️</div>
+            <div>
+              <div className="subj-stat-label">Class Assignments</div>
               <div className="subj-stat-value">{subjects.length}</div>
             </div>
           </div>
@@ -341,14 +403,7 @@ const Subjects = () => {
             <div className="subj-stat-icon" style={{ background: "#fff7ed" }}>🏫</div>
             <div>
               <div className="subj-stat-label">Classes Covered</div>
-              <div className="subj-stat-value">{uniqueClasses.length}</div>
-            </div>
-          </div>
-          <div className="subj-stat-card">
-            <div className="subj-stat-icon" style={{ background: "#f0fdf4" }}>🗂️</div>
-            <div>
-              <div className="subj-stat-label">Available Classes</div>
-              <div className="subj-stat-value">{classes.length}</div>
+              <div className="subj-stat-value">{uniqueClasses.size}</div>
             </div>
           </div>
         </div>
@@ -416,7 +471,18 @@ const Subjects = () => {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <span className="subj-count-badge">{filtered.length} of {subjects.length}</span>
+              <select
+                className="subj-select"
+                aria-label="Filter subjects by class"
+                value={selectedClass}
+                onChange={(e) => setSelectedClass(e.target.value)}
+              >
+                <option value="">All classes</option>
+                {classes.map((c) => (
+                  <option key={c.id} value={String(c.id)}>{c.name}</option>
+                ))}
+              </select>
+              <span className="subj-count-badge">{filtered.length} of {subjects.length} class assignments</span>
             </div>
           </div>
 
@@ -442,7 +508,7 @@ const Subjects = () => {
                         <div className="subj-empty">
                           <div className="subj-empty-icon">📚</div>
                           <div className="subj-empty-text">
-                            {search ? "No subjects match your search" : "No subjects yet — add one above"}
+                            {search || selectedClass ? "No subjects match these filters" : "No subjects yet — add one above"}
                           </div>
                         </div>
                       </td>
@@ -450,26 +516,61 @@ const Subjects = () => {
                   ) : filtered.map((s) => (
                     <tr key={s.id}>
                       <td>
-                        <div className="subj-cell">
-                          <div
-                            className="subj-avatar"
-                            style={{ background: getColor(s.name) }}
-                          >
-                            {getInitials(s.name)}
+                        {editingSubject === s.id ? (
+                          <form className="subj-inline-edit" onSubmit={(e) => saveSubjectName(e, s)}>
+                            <input
+                              className="subj-input"
+                              aria-label={`Edit ${s.name} subject name`}
+                              value={editedName}
+                              onChange={(e) => setEditedName(e.target.value)}
+                              autoFocus
+                              required
+                            />
+                            <button
+                              className="subj-btn-edit"
+                              type="submit"
+                              disabled={savingSubjectId === s.id}
+                            >
+                              {savingSubjectId === s.id ? "Saving..." : "Save"}
+                            </button>
+                            <button
+                              className="subj-btn-cancel"
+                              type="button"
+                              onClick={() => setEditingSubject(null)}
+                              disabled={savingSubjectId === s.id}
+                            >
+                              Cancel
+                            </button>
+                          </form>
+                        ) : (
+                          <div className="subj-cell">
+                            <div
+                              className="subj-avatar"
+                              style={{ background: getColor(s.name) }}
+                            >
+                              {getInitials(s.name)}
+                            </div>
+                            <span className="subj-name">{s.name}</span>
                           </div>
-                          <span className="subj-name">{s.name}</span>
+                        )}
+                      </td>
+                      <td>
+                        <span className="subj-class-badge">{s.school_class_name || s.class_name}</span>
+                      </td>
+                      <td>
+                        <div className="subj-row-actions">
+                          {editingSubject !== s.id && (
+                            <button className="subj-btn-edit" onClick={() => startEditing(s)}>
+                              Edit name
+                            </button>
+                          )}
+                          <button
+                            className="subj-btn-delete"
+                            onClick={() => setDeleteConfirm({ id: s.id, name: s.name })}
+                          >
+                            🗑 Remove
+                          </button>
                         </div>
-                      </td>
-                      <td>
-                        <span className="subj-class-badge">{s.class_name}</span>
-                      </td>
-                      <td>
-                        <button
-                          className="subj-btn-delete"
-                          onClick={() => setDeleteConfirm({ id: s.id, name: s.name })}
-                        >
-                          🗑 Remove
-                        </button>
                       </td>
                     </tr>
                   ))}
