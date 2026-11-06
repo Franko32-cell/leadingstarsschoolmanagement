@@ -78,7 +78,7 @@ class Command(BaseCommand):
             n = wrong.count()
             if n:
                 self.stdout.write(f"{t}: {n} record(s) carry the wrong term/year")
-                for old in wrong.values("term", "year").distinct():
+                for old in wrong.order_by().values("term", "year").distinct():
                     self.stdout.write(f"    {old['term']} {old['year']} -> {t.term} {t.year}")
                 if not dry:
                     wrong.update(term=t.term, year=t.year)
