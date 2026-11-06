@@ -1,7 +1,6 @@
 from io import BytesIO
 
 from django.utils import timezone
-from api.permissions.role_permissions import IsAdmin
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -33,7 +32,7 @@ def _drf_get_request(query_params=None):
 
 
 class SendWhatsAppBillView(APIView):
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, fee_id):
         fee = Fee.objects.select_related("student").filter(id=fee_id).first()
@@ -55,7 +54,7 @@ class SendWhatsAppBillView(APIView):
 
 
 class SendWhatsAppReceiptView(APIView):
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, transaction_id):
         transaction = (
@@ -83,7 +82,7 @@ class SendWhatsAppReceiptView(APIView):
 
 
 class BulkSendWhatsAppBillsView(APIView):
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         class_id = request.data.get("school_class") or request.query_params.get("school_class")

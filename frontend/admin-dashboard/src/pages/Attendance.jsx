@@ -16,7 +16,7 @@ import API from "../services/api";
 // constants are kept only for the summary fetch filter, which is a reporting
 // query where term-scoping is intentional. They are explicitly NOT used in
 // fetchStudents or submitAttendance to avoid mismatches with settings values.
-const CURRENT_TERM = import.meta?.env?.VITE_CURRENT_TERM ?? "term1";
+const CURRENT_TERM = import.meta?.env?.VITE_CURRENT_TERM ?? "term3";
 const CURRENT_YEAR = Number(import.meta?.env?.VITE_CURRENT_YEAR ?? 2026);
 
 const MAX_SUMMARY_PAGES = 20;

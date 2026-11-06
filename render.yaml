@@ -1,3 +1,4 @@
+cat > /workspaces/school-website-MagementSystem/school-website-MagementSystem/render.yaml << 'EOF'
 services:
   - type: web
     name: school-backend
@@ -25,13 +26,4 @@ services:
         value: "LEADSTARS"
       - key: CORS_ALLOWED_ORIGINS
         sync: false
-      - key: PAYSTACK_SECRET_KEY
-        sync: false
-      - key: TERMII_WHATSAPP_DEVICE_ID
-        sync: false
-      - key: TERMII_WHATSAPP_REPORT_TEMPLATE_ID
-        sync: false
-      - key: TERMII_WHATSAPP_BILL_TEMPLATE_ID
-        sync: false
-      - key: TERMII_WHATSAPP_RECEIPT_TEMPLATE_ID
-        sync: false
+EOF

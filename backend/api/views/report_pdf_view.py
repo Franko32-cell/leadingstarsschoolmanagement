@@ -63,7 +63,6 @@ from reportlab.platypus import (
     HRFlowable, Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
 
-from api.permissions.role_permissions import IsAdminOrOwnStudent
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -566,7 +565,7 @@ def generate_student_report_pdf(student_id, term, year):
 # ---------------------------------------------------------------------------
 
 class StudentReportPDFView(APIView):
-    permission_classes = [IsAdminOrOwnStudent]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, student_id):
         # ── Parameter validation ───────────────────────────────────────

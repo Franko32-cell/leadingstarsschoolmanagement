@@ -164,12 +164,4 @@ class SubmissionViewSet(ElearningViewSetMixin, viewsets.ModelViewSet):
                 feedback=serializer.instance.feedback,
             )
         else:
-            # Staff grading: only touch the fields staff may change, via
-            # update_fields, so `submitted_at` (auto_now) is NOT refreshed —
-            # otherwise every graded submission suddenly looked "late".
-            instance = serializer.instance
-            changed = []
-            for attr, value in serializer.validated_data.items():
-                setattr(instance, attr, value)
-                changed.append(attr)
-            instance.save(update_fields=changed or None)
+            serializer.save()

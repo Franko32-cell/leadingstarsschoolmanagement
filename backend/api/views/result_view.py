@@ -6,7 +6,6 @@ from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.decorators import action
-from api.permissions.role_permissions import StaffWriteStudentRead, ScopedToOwnStudent, IsAdminOrTeacher
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
@@ -154,7 +153,7 @@ def _assign_ranks(rows: list[dict], key: str = "total_score") -> None:
 # ViewSet
 # ---------------------------------------------------------------------------
 
-class ResultViewSet(ScopedToOwnStudent, ModelViewSet):
+class ResultViewSet(ModelViewSet):
 
     # Component caps mirror the model's validators (reopen ≤20, ca ≤40,
     # exams ≤40) so reopen+ca+exams can never exceed 100. These are
@@ -165,10 +164,10 @@ class ResultViewSet(ScopedToOwnStudent, ModelViewSet):
 
     queryset           = Result.objects.all().order_by("-created_at")
     serializer_class   = ResultSerializer
-    permission_classes = [StaffWriteStudentRead]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs     = self.scope_queryset_for_user(super().get_queryset())
+        qs     = super().get_queryset()
         params = self.request.query_params
 
         student      = params.get("student")
@@ -430,7 +429,7 @@ class ResultViewSet(ScopedToOwnStudent, ModelViewSet):
     # Class summary (ranked) — year-aware
     # ------------------------------------------------------------------
 
-    @action(detail=False, methods=["get"], url_path="summary", permission_classes=[IsAdminOrTeacher])
+    @action(detail=False, methods=["get"], url_path="summary")
     def summary(self, request):
         school_class = request.query_params.get("school_class")
         term         = request.query_params.get("term")

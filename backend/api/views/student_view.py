@@ -19,21 +19,16 @@ from apps.accounts.services import (
     unlock_login as clear_login_lockout,
 )
 from apps.audit.models import AuditLog
-from api.permissions.role_permissions import IsAdmin, AdminWriteTeacherStudentRead
+from api.permissions.role_permissions import IsAdmin
 
 
 class StudentViewSet(ModelViewSet):
     queryset         = Student.objects.select_related("user", "school_class").all()
     serializer_class = StudentSerializer
     parser_classes   = [MultiPartParser, FormParser, JSONParser]
-    permission_classes = [AdminWriteTeacherStudentRead]
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        role = getattr(self.request.user, "role", None)
-        if role == "student":
-            # Students only ever see their own profile.
-            return queryset.filter(user=self.request.user)
         school_class     = self.request.query_params.get("school_class")
         admission_number = self.request.query_params.get("admission_number")
         search           = self.request.query_params.get("search")

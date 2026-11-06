@@ -19,7 +19,6 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.platypus.flowables import Flowable
 
 from rest_framework.views import APIView
-from api.permissions.role_permissions import IsAdmin
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -809,7 +808,7 @@ def build_acceptance_footer():
 # ─────────────────────────────────────────────────────────────────────────────
 
 class AdmissionFormPDFView(APIView):
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, admission_id):
         admission = get_object_or_404(

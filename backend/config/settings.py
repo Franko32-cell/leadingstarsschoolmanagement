@@ -79,6 +79,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'api.middleware.ActiveUserMiddleware',
     'axes.middleware.AxesMiddleware',
 ]
 
@@ -109,7 +110,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # ── School Term ────────────────────────────────────────────────
 
-CURRENT_TERM = "term1"
+CURRENT_TERM = "term3"
 CURRENT_YEAR = 2026
 
 
@@ -151,9 +152,7 @@ STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 static_dir = BASE_DIR / "static"
 STATICFILES_DIRS = [static_dir] if static_dir.exists() else []
-
-# NOTE: Django 5.1+ removed STATICFILES_STORAGE / DEFAULT_FILE_STORAGE; the
-# STORAGES dict (defined after the Cloudinary block below) replaces them.
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 
 # ── Cloudinary / Media ─────────────────────────────────────────
@@ -178,23 +177,12 @@ if CLOUDINARY_CLOUD_NAME:
         "API_SECRET": CLOUDINARY_API_SECRET,
     }
 
-    # Raw storage accepts PDFs / docs / zips (lesson attachments, student
-    # submissions, WhatsApp PDFs) — the image storage rejects non-images.
-    _DEFAULT_STORAGE_BACKEND = "cloudinary_storage.storage.RawMediaCloudinaryStorage"
-    MEDIA_URL = f"https://res.cloudinary.com/{CLOUDINARY_CLOUD_NAME}/raw/upload/"
+    DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
+    MEDIA_URL = f"https://res.cloudinary.com/{CLOUDINARY_CLOUD_NAME}/image/upload/"
 
 else:
-    _DEFAULT_STORAGE_BACKEND = "django.core.files.storage.FileSystemStorage"
     MEDIA_URL  = "/media/"
     MEDIA_ROOT = BASE_DIR / "media"
-
-STORAGES = {
-    "default": {"BACKEND": _DEFAULT_STORAGE_BACKEND},
-    # Plain whitenoise storage (no manifest) — identical to what was
-    # effectively running before, because STATICFILES_STORAGE is ignored on
-    # Django 5.2. Avoids "missing manifest entry" 500s.
-    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
-}
 
 
 # ── Termii SMS ─────────────────────────────────────────────────
@@ -205,12 +193,6 @@ TERMII_WHATSAPP_DEVICE_ID = os.environ.get("TERMII_WHATSAPP_DEVICE_ID", "")
 TERMII_WHATSAPP_REPORT_TEMPLATE_ID = os.environ.get("TERMII_WHATSAPP_REPORT_TEMPLATE_ID", "")
 TERMII_WHATSAPP_BILL_TEMPLATE_ID = os.environ.get("TERMII_WHATSAPP_BILL_TEMPLATE_ID", "")
 TERMII_WHATSAPP_RECEIPT_TEMPLATE_ID = os.environ.get("TERMII_WHATSAPP_RECEIPT_TEMPLATE_ID", "")
-
-
-# ── Paystack ───────────────────────────────────────────────────
-# Required to verify webhook signatures and to confirm student-initiated
-# payments server-side. Set PAYSTACK_SECRET_KEY on Render.
-PAYSTACK_SECRET_KEY = os.environ.get("PAYSTACK_SECRET_KEY", "")
 
 
 # ── CORS ───────────────────────────────────────────────────────
@@ -268,12 +250,7 @@ AXES_RESET_ON_SUCCESS = True
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "api.authentication.ActiveJWTAuthentication",
-    ),
-    # Secure by default: every endpoint requires a logged-in user unless it
-    # explicitly opts out (login, refresh, register, health, webhook).
-    "DEFAULT_PERMISSION_CLASSES": (
-        "rest_framework.permissions.IsAuthenticated",
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.ScopedRateThrottle",

@@ -5,7 +5,6 @@ from rest_framework import viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from api.permissions.role_permissions import IsAdminOrReadOnly
 from apps.announcements.models import Announcement
 from api.serializers.announcement_serializer import AnnouncementSerializer
 
@@ -19,7 +18,6 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
     # Required for DRF router basename auto-detection when get_queryset() is overridden
     queryset         = Announcement.objects.all()
     serializer_class = AnnouncementSerializer
-    permission_classes = [IsAdminOrReadOnly]
     filter_backends  = [filters.SearchFilter, filters.OrderingFilter]
     search_fields    = ["title", "message"]
     ordering_fields  = ["created_at", "priority", "is_pinned"]

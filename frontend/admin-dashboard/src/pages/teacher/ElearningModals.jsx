@@ -202,7 +202,6 @@ export function SubmissionsModal({ assignment, submissions, students, onGrade, o
   const [scores, setScores]     = useState({});
   const [feedback, setFeedback] = useState({});
   const [savingId, setSavingId] = useState(null);
-  const [gradeError, setGradeError] = useState("");
 
   const studentName = (id) => students.find((s) => String(s.id) === String(id))?.student_name ?? `Student #${id}`;
 
@@ -210,9 +209,6 @@ export function SubmissionsModal({ assignment, submissions, students, onGrade, o
     setSavingId(submission.id);
     try {
       await onGrade(submission.id, Number(scores[submission.id] ?? submission.score ?? 0), feedback[submission.id] ?? submission.feedback ?? "");
-      setGradeError("");
-    } catch {
-      setGradeError("Failed to save grade. Please try again.");
     } finally {
       setSavingId(null);
     }
@@ -229,7 +225,6 @@ export function SubmissionsModal({ assignment, submissions, students, onGrade, o
           <button className="tp-modal-close" onClick={onClose}>✕</button>
         </div>
         <div className="tp-modal-body">
-          {gradeError && <p className="tp-gateway-err" role="alert">{gradeError}</p>}
           {submissions.length === 0 && (
             <p style={{ fontSize: "13px", color: "#94a3b8", textAlign: "center", padding: "20px 0" }}>No submissions yet.</p>
           )}

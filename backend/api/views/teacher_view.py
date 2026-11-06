@@ -18,7 +18,7 @@ from apps.accounts.services import (
     unlock_login as clear_login_lockout,
 )
 from apps.audit.models import AuditLog
-from api.permissions.role_permissions import IsAdmin, AdminWriteTeacherStudentRead
+from api.permissions.role_permissions import IsAdmin
 
 
 class TeacherFilter(FilterSet):
@@ -34,7 +34,6 @@ class TeacherFilter(FilterSet):
 
 class TeacherViewSet(viewsets.ModelViewSet):
     serializer_class = TeacherSerializer
-    permission_classes = [AdminWriteTeacherStudentRead]
     filterset_class  = TeacherFilter
     filter_backends  = [DjangoFilterBackend, filters.OrderingFilter]
     ordering_fields  = ["teacher_id", "hire_date"]
@@ -47,11 +46,6 @@ class TeacherViewSet(viewsets.ModelViewSet):
             .prefetch_related("subjects")
             .all()
         )
-        role = getattr(self.request.user, "role", None)
-        if role == "teacher":
-            qs = qs.filter(user=self.request.user)   # teachers see only themselves
-        elif role != "admin":
-            return qs.none()
         # Archived teachers are hidden from normal listings by default —
         # pass ?include_archived=true to see them (e.g. a "Restore" view).
         include_archived = self.request.query_params.get("include_archived", "false")

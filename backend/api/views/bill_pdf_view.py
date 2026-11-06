@@ -20,7 +20,6 @@ from reportlab.lib.units import mm
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 from rest_framework.views import APIView
-from api.permissions.role_permissions import IsAdmin, AdminOrOwnStudentReadOnly
 from rest_framework.permissions import IsAuthenticated
 
 import requests
@@ -372,7 +371,7 @@ def build_footer():
 # ---------------------------------------------------------------------------
 
 class StudentFeeBillPDFView(APIView):
-    permission_classes = [AdminOrOwnStudentReadOnly]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, student_id):
         term = request.query_params.get("term")
@@ -440,7 +439,7 @@ class StudentFeeBillPDFView(APIView):
 # ---------------------------------------------------------------------------
 
 class ClassFeeBillPDFView(APIView):
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         term         = request.query_params.get("term")

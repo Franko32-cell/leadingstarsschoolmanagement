@@ -8,7 +8,7 @@ from apps.students.models import Student
 
 class StudentAdminSearchTests(TestCase):
     def setUp(self):
-        self.user = get_user_model().objects.create_user(username="admin", password="pass", role="admin")
+        self.user = get_user_model().objects.create_user(username="admin", password="pass")
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 

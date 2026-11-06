@@ -7,8 +7,6 @@ from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from api.permissions.role_permissions import IsAdminOrTeacher, IsAdminOrOwnStudent
-from api.permissions.role_permissions import StaffOrOwnStudentRead
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -24,7 +22,7 @@ def get_current_year() -> int:
 
 
 class PreschoolAssessmentView(APIView):
-    permission_classes = [StaffOrOwnStudentRead]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, student_id):
         term = request.query_params.get("term")

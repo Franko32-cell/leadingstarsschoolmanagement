@@ -17,7 +17,6 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from PIL import Image as PilImage, ImageOps
 
 from rest_framework.views import APIView
-from api.permissions.role_permissions import IsAdminOrOwnReceipt
 from rest_framework.permissions import IsAuthenticated
 
 import requests
@@ -118,7 +117,7 @@ def load_student_photo(student, size=18 * mm):
 # ---------------------------------------------------------------------------
 
 class PaymentReceiptPDFView(APIView):
-    permission_classes = [IsAdminOrOwnReceipt]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, transaction_id):
         txn     = get_object_or_404(PaymentTransaction, id=transaction_id)

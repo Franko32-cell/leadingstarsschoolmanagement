@@ -13,14 +13,10 @@ from unittest.mock import patch
 from io import BytesIO
 
 
-from django.test import override_settings
-
-
-@override_settings(TERMII_WHATSAPP_REPORT_TEMPLATE_ID="tpl-test", TERMII_WHATSAPP_DEVICE_ID="dev-test")
 class ResultsApiTests(TestCase):
 
     def setUp(self):
-        self.user = get_user_model().objects.create_user(username="tester", password="pass", role="admin")
+        self.user = get_user_model().objects.create_user(username="tester", password="pass")
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 

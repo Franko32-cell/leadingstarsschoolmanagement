@@ -1,6 +1,5 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from api.permissions.role_permissions import IsAdmin
 from rest_framework.permissions import IsAuthenticated
 
 from apps.students.models import Student
@@ -13,7 +12,7 @@ from apps.admissions.models import Admission
 
 class DashboardView(APIView):
 
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
 

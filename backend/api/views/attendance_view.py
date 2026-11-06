@@ -11,7 +11,6 @@ from django_filters.rest_framework import (
     NumberFilter,
 )
 
-from api.permissions.role_permissions import StaffWriteStudentRead, ScopedToOwnStudent
 from apps.attendance.models import Attendance, SchoolCalendar
 from api.serializers.attendance_serializer import AttendanceSerializer
 
@@ -53,7 +52,7 @@ class AttendanceFilter(FilterSet):
 # ---------------------------------------------------------------------------
 # ViewSet
 # ---------------------------------------------------------------------------
-class AttendanceViewSet(ScopedToOwnStudent, viewsets.ModelViewSet):
+class AttendanceViewSet(viewsets.ModelViewSet):
     """
     CRUD endpoint for Attendance records.
 
@@ -69,7 +68,6 @@ class AttendanceViewSet(ScopedToOwnStudent, viewsets.ModelViewSet):
     """
 
     serializer_class = AttendanceSerializer
-    permission_classes = [StaffWriteStudentRead]
     filterset_class  = AttendanceFilter
     filter_backends  = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
     ordering_fields  = ["date", "student"]
@@ -93,7 +91,7 @@ class AttendanceViewSet(ScopedToOwnStudent, viewsets.ModelViewSet):
     # Queryset
     # ------------------------------------------------------------------
     def get_queryset(self):
-        return self.scope_queryset_for_user(
+        return (
             Attendance.objects
             .select_related("student", "school_class")
             .all()

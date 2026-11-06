@@ -25,7 +25,6 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from rest_framework import serializers
-from api.permissions.role_permissions import StaffOrOwnStudentRead
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -252,7 +251,7 @@ class ReportResponseSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 
 class StudentReportView(APIView):
-    permission_classes = [StaffOrOwnStudentRead]
+    permission_classes = [IsAuthenticated]
 
     # ── GET ──────────────────────────────────────────────────────────────
     def get(self, request, student_id):
