@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.decorators import action
+from api.permissions.role_permissions import IsAdminOrTeacher, IsAdminOrOwnStudent
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -35,7 +36,7 @@ def get_current_year() -> int:
 class MockResultViewSet(ModelViewSet):
     queryset           = MockResult.objects.all().order_by("-created_at")
     serializer_class   = MockResultSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrTeacher]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -119,7 +120,7 @@ class MockReportView(APIView):
     Each mock also reports `core_missing` and `complete` so clients can flag a
     provisional aggregate.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrOwnStudent]
 
     def get(self, request, student_id):
         year = request.query_params.get("year") or get_current_year()

@@ -1,6 +1,7 @@
 import logging
 
 from django.utils import timezone
+from api.permissions.role_permissions import IsAdminOrTeacher
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class SendWhatsAppReportView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrTeacher]
 
     def post(self, request, report_id):
         record_type = request.query_params.get("type", "report")
@@ -50,7 +51,7 @@ class SendWhatsAppReportView(APIView):
 
 
 class SendWhatsAppStudentReportView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrTeacher]
 
     def post(self, request, student_id):
         term = request.query_params.get("term")
@@ -81,7 +82,7 @@ class SendWhatsAppStudentReportView(APIView):
 
 
 class BulkSendWhatsAppReportsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrTeacher]
 
     def post(self, request):
         class_id = request.data.get("school_class") or request.query_params.get("school_class")

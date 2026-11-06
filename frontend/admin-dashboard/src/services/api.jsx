@@ -1,6 +1,28 @@
 import axios from "axios";
 
-const BASE_URL = import.meta.env.VITE_API_URL + "/api";
+// Fall back to the local Django dev server so a missing VITE_API_URL does not
+// silently produce requests to "undefined/api".
+const RAW_API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
+const BASE_URL = RAW_API_URL.replace(/\/+$/, "") + "/api";
+
+// Several requests can hit a 401 at the same moment (page load fires many).
+// Share one refresh call between all of them instead of firing N refreshes.
+let refreshPromise = null;
+const refreshAccessToken = () => {
+  if (!refreshPromise) {
+    const refresh = localStorage.getItem("refresh");
+    refreshPromise = axios
+      .post(`${BASE_URL}/auth/refresh/`, { refresh })
+      .then((res) => {
+        localStorage.setItem("access", res.data.access);
+        // If token rotation is ever enabled the API returns a new refresh token too.
+        if (res.data.refresh) localStorage.setItem("refresh", res.data.refresh);
+        return res.data.access;
+      })
+      .finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+};
 
 const PUBLIC_ENDPOINTS = ["/auth/login/", "/auth/refresh/", "/auth/register/"];
 
@@ -53,9 +75,7 @@ API.interceptors.response.use(
           window.location.href = "/login";
           return Promise.reject(error);
         }
-        const res = await axios.post(`${BASE_URL}/auth/refresh/`, { refresh });
-        const newAccess = res.data.access;
-        localStorage.setItem("access", newAccess);
+        const newAccess = await refreshAccessToken();
         originalRequest.headers.Authorization = `Bearer ${newAccess}`;
         return API(originalRequest);
       } catch {

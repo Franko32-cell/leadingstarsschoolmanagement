@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   FaUser, FaLock, FaUserShield, FaChalkboardTeacher,
   FaUserGraduate, FaClock, FaEnvelope, FaPhone,
   FaChevronDown, FaChevronUp, FaEye, FaEyeSlash,
 } from "react-icons/fa";
 import { useNavigate, Link } from "react-router-dom";
-import { login } from "../services/auth";
+import { login, isAuthenticated, getUser } from "../services/auth";
+import { schoolInfo } from "../data/schoolInfo";
+
+const PORTAL_FOR_ROLE = { admin: "/admin", teacher: "/teacher", student: "/student" };
 
 const ROLES = [
   { value: "admin",   label: "Admin",   icon: <FaUserShield />,        hint: "Use your username",         placeholder: "Username"         },
@@ -16,7 +19,7 @@ const ROLES = [
 const FORGOT_CONTENT = {
   admin: {
     title: "Forgot your password?",
-    body: "Admins can reset their password via the registration page, or contact your system administrator for assistance.",
+    body: "There is no self-service reset for admin accounts. Please ask another administrator, or your system administrator, to reset it for you.",
     showContact: false,
   },
   teacher: {
@@ -42,6 +45,14 @@ const Login = () => {
   const [showForgot, setShowForgot]     = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  // Already signed in? Skip the form and go straight to the right portal.
+  useEffect(() => {
+    if (isAuthenticated()) {
+      const target = PORTAL_FOR_ROLE[getUser()?.role];
+      if (target) navigate(target, { replace: true });
+    }
+  }, [navigate]);
+
   const selectedRole  = ROLES.find((r) => r.value === role);
   const forgotContent = FORGOT_CONTENT[role];
 
@@ -60,17 +71,21 @@ const Login = () => {
     setPending(false);
     setLoading(true);
     try {
-      const user = await login(username, password);
-      if      (user.role === "admin")   navigate("/admin");
-      else if (user.role === "teacher") navigate("/teacher");
-      else if (user.role === "student") navigate("/student");
-      else navigate("/");
+      const user = await login(username.trim(), password);
+      navigate(PORTAL_FOR_ROLE[user.role] || "/", { replace: true });
     } catch (err) {
       const errData = err.response?.data;
-      if (errData?.error === "pending_approval") {
+      if (!err.response) {
+        // No response at all: offline, or the free-tier server is still waking up.
+        setError("We couldn't reach the server. If it has been idle it may take up to a minute to wake up — please check your connection and try again.");
+      } else if (errData?.error === "pending_approval") {
         setPending(true);
+      } else if (err.response.status === 429) {
+        setError("Too many attempts. Please wait a minute before trying again.");
       } else {
-        setError(errData?.error || errData?.message || "Invalid credentials. Please try again.");
+        // Prefer the human-readable message (e.g. for "account_suspended")
+        // over the machine code in `error`.
+        setError(errData?.message || errData?.error || "Invalid credentials. Please try again.");
       }
     } finally {
       setLoading(false);
@@ -150,7 +165,7 @@ const Login = () => {
 
           {/* ── Error ── */}
           {error && (
-            <div className="mb-4 p-3 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm">
+            <div role="alert" className="mb-4 p-3 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm">
               {error}
             </div>
           )}
@@ -164,6 +179,10 @@ const Login = () => {
               <input
                 type="text"
                 placeholder={selectedRole?.placeholder}
+                aria-label={selectedRole?.placeholder}
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
                 className="w-full p-3 outline-none text-sm"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -177,6 +196,8 @@ const Login = () => {
               <input
                 type={showPassword ? "text" : "password"}
                 placeholder="Password"
+                aria-label="Password"
+                autoComplete="current-password"
                 className="w-full p-3 outline-none text-sm"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -214,12 +235,14 @@ const Login = () => {
                 <p>{forgotContent.body}</p>
                 {forgotContent.showContact && (
                   <div className="flex gap-2 mt-3">
-                      <a href="mailto:admin@leadingstars.edu" className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-white border border-amber-300 rounded-lg text-amber-800 hover:bg-amber-100 transition-colors">
+                      <a href={`mailto:${schoolInfo.email}`} className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-white border border-amber-300 rounded-lg text-amber-800 hover:bg-amber-100 transition-colors">
                         <FaEnvelope className="text-[10px]" /> Email admin
                       </a>
-                      <a href="tel:+000000000" className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-white border border-amber-300 rounded-lg text-amber-800 hover:bg-amber-100 transition-colors">
-                        <FaPhone className="text-[10px]" /> Call office
-                      </a>
+                      {schoolInfo.phone && (
+                        <a href={`tel:${schoolInfo.phone}`} className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-white border border-amber-300 rounded-lg text-amber-800 hover:bg-amber-100 transition-colors">
+                          <FaPhone className="text-[10px]" /> Call office
+                        </a>
+                      )}
                     </div>
                 )}
               </div>

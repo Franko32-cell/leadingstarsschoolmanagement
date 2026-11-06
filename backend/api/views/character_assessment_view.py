@@ -1,6 +1,6 @@
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.generics import get_object_or_404
-from rest_framework.permissions import IsAuthenticated
+from api.permissions.role_permissions import StaffWriteStudentRead, ScopedToOwnStudent
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
@@ -8,14 +8,14 @@ from apps.results.models import CharacterAssessment
 from api.serializers.character_assessment_serializer import CharacterAssessmentSerializer
 
 
-class CharacterAssessmentViewSet(ModelViewSet):
+class CharacterAssessmentViewSet(ScopedToOwnStudent, ModelViewSet):
     queryset = CharacterAssessment.objects.all().order_by("-created_at")
     serializer_class = CharacterAssessmentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [StaffWriteStudentRead]
     lookup_field = "student"
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = self.scope_queryset_for_user(super().get_queryset())
         params = self.request.query_params
 
         student = params.get("student")
@@ -64,7 +64,7 @@ class CharacterAssessmentViewSet(ModelViewSet):
             params = request.query_params
             student, term = params.get("student"), params.get("term")
             if student and term:
-                qs_fallback = CharacterAssessment.objects.order_by("-year", "-created_at")
+                qs_fallback = self.scope_queryset_for_user(CharacterAssessment.objects.order_by("-year", "-created_at"))
                 if str(student).isdigit():
                     qs_fallback = qs_fallback.filter(student_id=student, term=term)
                 else:

@@ -1,12 +1,14 @@
 import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status, viewsets, filters
 from rest_framework.decorators import action
 
 from django.contrib.auth import get_user_model, authenticate
 from django.contrib.auth.models import update_last_login
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -62,6 +64,8 @@ class IsAdminRole(IsAuthenticated):
 # ─────────────────────────────────────────────
 
 class LoginView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
     throttle_scope = "login"
 
     def post(self, request):
@@ -238,6 +242,8 @@ class LoginView(APIView):
 
 
 class RegisterView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
     throttle_scope = "register"
 
     def post(self, request):
@@ -251,13 +257,12 @@ class RegisterView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if len(password) < 6:
-            return Response(
-                {"error": "Password must be at least 6 characters"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        try:
+            validate_password(password, user=User(username=username, email=email or ""))
+        except DjangoValidationError as exc:
+            return Response({"error": " ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
-        if User.objects.filter(username=username).exists():
+        if User.objects.filter(username__iexact=username).exists():
             return Response(
                 {"error": "Username already exists"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -370,11 +375,10 @@ class ChangePasswordView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if len(new_password) < 8:
-            return Response(
-                {"new_password": ["Must be at least 8 characters."]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            return Response({"new_password": list(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
         user.set_password(new_password)
         user.save()

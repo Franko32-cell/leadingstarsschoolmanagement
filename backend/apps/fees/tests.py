@@ -14,7 +14,7 @@ from apps.students.models import Student
 class FeeWhatsAppEndpointTests(TestCase):
 
 	def setUp(self):
-		user = get_user_model().objects.create_user(username="fee-test", password="pass")
+		user = get_user_model().objects.create_user(username="fee-test", password="pass", role="admin")
 		self.client = APIClient()
 		self.client.force_authenticate(user=user)
 		school_class = SchoolClass.objects.create(name="JSS 1", level="basic_7_9")

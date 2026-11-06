@@ -85,12 +85,6 @@ def send_whatsapp_document(student, pdf_file, *, doc_type, caption, template_dat
         result["reason"] = "invalid_doc_type"
         return result
 
-    template_id = getattr(settings, DOCUMENT_TEMPLATE_SETTINGS[doc_type], None)
-    if not template_id:
-        logger.error("No Termii template configured for doc_type=%s", doc_type)
-        result["reason"] = "missing_template_config"
-        return result
-
     raw_phone = getattr(student, "parent_phone", "")
     if not raw_phone:
         result["reason"] = "no_phone"
@@ -98,6 +92,12 @@ def send_whatsapp_document(student, pdf_file, *, doc_type, caption, template_dat
     phone = normalize_gh_phone(raw_phone)
     if phone is None:
         result["reason"] = "invalid_phone"
+        return result
+
+    template_id = getattr(settings, DOCUMENT_TEMPLATE_SETTINGS[doc_type], None)
+    if not template_id:
+        logger.error("No Termii template configured for doc_type=%s", doc_type)
+        result["reason"] = "missing_template_config"
         return result
 
     try:

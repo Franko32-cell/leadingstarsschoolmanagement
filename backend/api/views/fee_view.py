@@ -3,12 +3,14 @@ import hashlib
 import logging
 from decimal import Decimal
 
+import requests
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Sum, Count, Q, Prefetch
 
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated, BasePermission, SAFE_METHODS
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.decorators import action
@@ -33,11 +35,98 @@ def to_decimal(value, default=Decimal("0")):
         return default
 
 
+class FeePermission(BasePermission):
+    """
+    Admin: everything. Student: read their own fees (queryset-scoped) and
+    pay them via the `pay` action. Teachers / anonymous: no access.
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        role = getattr(user, "role", None)
+        if role == "admin":
+            return True
+        if role == "student":
+            return request.method in SAFE_METHODS or getattr(view, "action", None) == "pay"
+        return False
+
+
+def _extract_reference(note):
+    """Pull the Paystack reference out of a 'Paystack ref: XXXX' style note."""
+    if not note or "ref:" not in note.lower():
+        return ""
+    return note.split(":")[-1].strip()
+
+
+def verify_paystack_reference(reference):
+    """
+    Confirm a Paystack reference server-side.
+    Returns (verified_amount_in_cedis | None, error_message | None).
+    If PAYSTACK_SECRET_KEY is not configured we cannot verify; callers decide
+    what to do (returns (None, "unconfigured")).
+    """
+    secret = getattr(settings, "PAYSTACK_SECRET_KEY", "")
+    if not secret:
+        return None, "unconfigured"
+    try:
+        resp = requests.get(
+            f"https://api.paystack.co/transaction/verify/{reference}",
+            headers={"Authorization": f"Bearer {secret}"},
+            timeout=15,
+        )
+        body = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        logger.error("Paystack verify failed for %s: %s", reference, exc)
+        return None, "We could not confirm this payment with Paystack just now. If you were charged, it will be recorded automatically within a few minutes — please keep your payment reference."
+    data = body.get("data") or {}
+    if not body.get("status") or data.get("status") != "success":
+        return None, "Paystack has not confirmed this payment."
+    return Decimal(str(data.get("amount", 0))) / 100, None
+
+
+def apply_payment(fee_id, amount, note, recorded_by=None, reference="", cap=False):
+    """
+    Atomically record a payment against a fee.
+
+    The fee row is locked for the duration so two simultaneous requests
+    (e.g. Paystack webhook + the student's browser callback, or two admins)
+    cannot both read the same balance and overwrite each other's `paid`.
+    Returns (fee, txn, state) where state is "ok", "duplicate" or "over_balance".
+    """
+    with transaction.atomic():
+        fee = Fee.objects.select_for_update().select_related(
+            "student", "student__school_class"
+        ).get(pk=fee_id)
+
+        if reference and PaymentTransaction.objects.filter(note__icontains=reference).exists():
+            return fee, None, "duplicate"
+
+        if amount > fee.balance:
+            if not cap:
+                return fee, None, "over_balance"
+            amount = fee.balance
+        if amount <= 0:
+            return fee, None, "over_balance"
+
+        old_balance = fee.balance
+        fee.paid += amount
+        fee.save()
+        txn = PaymentTransaction.objects.create(
+            fee=fee, amount=amount, note=note, recorded_by=recorded_by,
+        )
+    fee._old_balance = old_balance
+    fee._applied_amount = amount
+    return fee, txn, "ok"
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Paystack Webhook
 # ──────────────────────────────────────────────────────────────────────────────
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def paystack_webhook(request):
     """
@@ -51,6 +140,12 @@ def paystack_webhook(request):
     body      = request.body
 
     # ── Signature verification ────────────────────────────────────────────────
+    # With no secret configured the HMAC key would be empty and anyone could
+    # forge a valid signature — refuse outright instead.
+    if not secret:
+        logger.error("Paystack webhook rejected: PAYSTACK_SECRET_KEY is not configured")
+        return Response({"error": "Webhook not configured"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
     expected = hmac.new(secret.encode(), body, hashlib.sha512).hexdigest()
     if not hmac.compare_digest(expected, signature):
         logger.warning("Paystack webhook: invalid signature received")
@@ -76,40 +171,24 @@ def paystack_webhook(request):
         logger.error("Paystack webhook: no fee_id in metadata. ref=%s", reference)
         return Response({"status": "no fee_id"})
 
-    # ── Idempotency check ─────────────────────────────────────────────────────
-    if PaymentTransaction.objects.filter(note__icontains=reference).exists():
-        logger.info("Paystack webhook: duplicate ref=%s — skipping", reference)
-        return Response({"status": "duplicate"})
-
-    # ── Load fee ──────────────────────────────────────────────────────────────
+    # ── Record payment (locked, idempotent, capped at balance) ────────────────
     try:
-        fee = Fee.objects.select_related(
-            "student", "student__school_class"
-        ).get(id=fee_id)
+        fee, txn, state = apply_payment(
+            fee_id, amount, f"Paystack webhook ref: {reference}",
+            recorded_by=None, reference=reference, cap=True,
+        )
     except Fee.DoesNotExist:
         logger.error("Paystack webhook: Fee %s not found", fee_id)
         return Response({"status": "fee not found"})
 
-    # Cap amount at current balance to prevent negative balance
-    if amount > fee.balance:
-        logger.warning(
-            "Paystack webhook: amount %s exceeds balance %s for fee %s — capping",
-            amount, fee.balance, fee_id,
-        )
-        amount = fee.balance
+    if state == "duplicate":
+        logger.info("Paystack webhook: duplicate ref=%s — skipping", reference)
+        return Response({"status": "duplicate"})
+    if state != "ok":
+        logger.info("Paystack webhook: nothing to apply for fee %s (already settled)", fee_id)
+        return Response({"status": "already_settled"})
 
-    # ── Record payment ────────────────────────────────────────────────────────
-    old_balance = fee.balance
-    fee.paid += amount
-    fee.save()
-
-    txn = PaymentTransaction.objects.create(
-        fee         = fee,
-        amount      = amount,
-        note        = f"Paystack webhook ref: {reference}",
-        recorded_by = None,
-    )
-
+    amount = fee._applied_amount
     log_action(
         request=request,
         action=AuditLog.Action.PAYMENT_PROCESSED,
@@ -117,7 +196,7 @@ def paystack_webhook(request):
         resource_type="PaymentTransaction",
         resource_id=txn.id,
         resource_repr=f"Payment: {fee.student.full_name} — {fee.get_term_display()} (Paystack)",
-        previous_value={"balance": str(old_balance)},
+        previous_value={"balance": str(fee._old_balance)},
         new_value={"balance": str(fee.balance), "amount_paid": str(amount)},
         description=f"Paystack webhook ref: {reference}",
     )
@@ -162,7 +241,7 @@ class FeeViewSet(ModelViewSet):
 
     queryset           = Fee.objects.all().select_related("student")
     serializer_class   = FeeSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [FeePermission]
 
     def get_queryset(self):
         # PERF FIX: FeeSerializer nests PaymentTransactionSerializer(many=True)
@@ -193,6 +272,8 @@ class FeeViewSet(ModelViewSet):
                 )
             )
         )
+        if getattr(self.request.user, "role", None) == "student":
+            qs = qs.filter(student__user=self.request.user)
         params = self.request.query_params
 
         student      = params.get("student")
@@ -229,7 +310,7 @@ class FeeViewSet(ModelViewSet):
 
         try:
             amount = Decimal(str(amount))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, ArithmeticError):
             return Response(
                 {"error": "amount must be a number"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -241,33 +322,48 @@ class FeeViewSet(ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if amount > fee.balance:
+        # ── Paystack-confirmed online payments ────────────────────────────────
+        reference = _extract_reference(note)
+        is_student = getattr(request.user, "role", None) == "student"
+
+        if is_student and not reference:
+            return Response(
+                {"error": "Online payments need a Paystack reference."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if reference and is_student:
+            verified, err = verify_paystack_reference(reference)
+            if err == "unconfigured":
+                if is_student:
+                    # Cannot verify without the secret key. Behaviour is kept
+                    # (so live payments keep working) but loudly logged —
+                    # set PAYSTACK_SECRET_KEY to close this gap.
+                    logger.warning(
+                        "PAYSTACK_SECRET_KEY not set: accepting unverified Paystack ref %s from student %s",
+                        reference, request.user.pk,
+                    )
+            elif err:
+                return Response({"error": err}, status=status.HTTP_402_PAYMENT_REQUIRED)
+            elif amount > verified:
+                amount = verified   # never credit more than Paystack actually collected
+
+        fee, txn, state = apply_payment(
+            fee.pk, amount, note,
+            recorded_by=request.user if request.user.is_authenticated else None,
+            reference=reference,
+        )
+        if state == "duplicate":
+            logger.info("pay(): duplicate Paystack ref=%s — skipping double-record", reference)
+            return Response(FeeSerializer(fee).data)
+        if state == "over_balance":
             return Response(
                 {"error": f"Amount exceeds outstanding balance of {fee.balance}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ── Idempotency: skip if this Paystack reference already recorded ─────
-        paystack_ref = None
-        if note and "paystack ref:" in note.lower():
-            paystack_ref = note.split(":")[-1].strip()
-            if PaymentTransaction.objects.filter(note__icontains=paystack_ref).exists():
-                logger.info(
-                    "pay() action: duplicate Paystack ref=%s — skipping double-record",
-                    paystack_ref,
-                )
-                return Response(FeeSerializer(fee).data)
-
-        old_balance = fee.balance
-        fee.paid += amount
-        fee.save()
-
-        txn = PaymentTransaction.objects.create(
-            fee         = fee,
-            amount      = amount,
-            note        = note,
-            recorded_by = request.user if request.user.is_authenticated else None,
-        )
+        old_balance = fee._old_balance
+        amount = fee._applied_amount
 
         log_action(
             request=request,

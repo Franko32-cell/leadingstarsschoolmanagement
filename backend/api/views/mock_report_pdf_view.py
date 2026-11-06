@@ -37,6 +37,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import HRFlowable, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from api.permissions.role_permissions import IsAdminOrTeacher, IsAdminOrOwnStudent
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -570,7 +571,7 @@ def _pdf_response(buffer, size, filename):
 
 
 class MockStudentPDFView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrOwnStudent]
 
     def get(self, request, student_id):
         mock, year, error = _parse_params(request)
@@ -580,7 +581,7 @@ class MockStudentPDFView(APIView):
 
 
 class MockClassPDFView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrTeacher]
 
     def get(self, request, class_id):
         mock, year, error = _parse_params(request)

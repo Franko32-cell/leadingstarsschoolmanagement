@@ -1,12 +1,14 @@
 import re
 import logging
 
+from django.db import transaction, IntegrityError
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
+from api.permissions.role_permissions import IsAdmin
 from apps.admissions.models import Admission
 from api.serializers.admission_serializer import AdmissionSerializer
 from apps.students.models import Student
@@ -19,10 +21,16 @@ from apps.audit.services import log_action
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
+# Initial password given to newly admitted students (they are prompted to
+# change it from the portal). Override with the env var if desired.
+import os
+DEFAULT_STUDENT_PASSWORD = os.environ.get("DEFAULT_STUDENT_PASSWORD", "student123")
+
 
 class AdmissionViewSet(ModelViewSet):
     queryset         = Admission.objects.select_related("applied_class").all().order_by("-application_date")
     serializer_class = AdmissionSerializer
+    permission_classes = [IsAdmin]
     parser_classes   = [MultiPartParser, FormParser, JSONParser]
 
     def get_serializer_context(self):
@@ -108,47 +116,70 @@ class AdmissionViewSet(ModelViewSet):
         if admission.status != "approved":
             return
 
-        if Student.objects.filter(user__email=admission.email).exists():
-            logger.info(f"Student already exists for {admission.email}, skipping.")
+        # Idempotency: an approved admission that already produced a student
+        # carries its admission_number. (Previously this matched on the
+        # parent's e-mail, which silently blocked the 2nd+ child of any
+        # parent who applied with the same address.)
+        if admission.admission_number and Student.objects.filter(
+            admission_number=admission.admission_number
+        ).exists():
+            logger.info(f"Student already exists for admission {admission.id}, skipping.")
             return
 
         try:
-            student_id   = self._generate_student_id()
-            school_class = self._resolve_class(admission)
+            with transaction.atomic():
+                school_class = self._resolve_class(admission)
 
-            first_name = admission.first_name or admission.student_name.split(" ", 1)[0]
-            last_name  = (
-                admission.last_name
-                or (admission.student_name.split(" ", 1)[1]
-                    if " " in admission.student_name else "")
-            )
+                first_name = admission.first_name or admission.student_name.split(" ", 1)[0]
+                last_name  = (
+                    admission.last_name
+                    or (admission.student_name.split(" ", 1)[1]
+                        if " " in admission.student_name else "")
+                )
+                photo_value = self._copy_photo(admission)
 
-            user = User.objects.create_user(
-                username=student_id,
-                email=admission.email,
-                password="student123",
-                first_name=first_name,
-                last_name=last_name,
-                role="student",
-            )
+                student = None
+                for _attempt in range(5):
+                    student_id = self._generate_student_id()
+                    try:
+                        with transaction.atomic():
+                            user = User.objects.create_user(
+                                username=student_id,
+                                email=admission.email,
+                                password=DEFAULT_STUDENT_PASSWORD,
+                                first_name=first_name,
+                                last_name=last_name,
+                                role="student",
+                            )
+                            student = Student.objects.create(
+                                user=user,
+                                admission_number=student_id,
+                                student_name=f"{first_name} {last_name}".strip(),
+                                first_name=first_name,
+                                last_name=last_name,
+                                gender=admission.gender,
+                                nationality=admission.nationality,
+                                religion=admission.religion,
+                                health_notes=admission.health_notes,
+                                previous_school=admission.previous_school,
+                                parent_name=admission.parent_name,
+                                # The admission form's contact number is the
+                                # parent's — without this, fee SMS / WhatsApp
+                                # reports never reach newly admitted students.
+                                parent_phone=admission.phone,
+                                date_of_birth=admission.date_of_birth,
+                                address=admission.address,
+                                school_class=school_class,
+                                photo=photo_value,
+                            )
+                        break
+                    except IntegrityError:
+                        continue   # concurrent approval grabbed this number
+                if student is None:
+                    raise IntegrityError("Could not allocate a unique student ID")
 
-            # Get raw public_id string from DB
-            photo_value = self._copy_photo(admission)
-            logger.info(f"Photo value to assign to student: {photo_value}")
-
-            student = Student.objects.create(
-                user=user,
-                admission_number=student_id,
-                student_name=f"{first_name} {last_name}".strip(),
-                parent_name=admission.parent_name,
-                date_of_birth=admission.date_of_birth,
-                address=admission.address,
-                school_class=school_class,
-                photo=photo_value,
-            )
-
-            admission.admission_number = student_id
-            admission.save(update_fields=["admission_number"])
+                admission.admission_number = student_id
+                admission.save(update_fields=["admission_number"])
 
             logger.info(f"Student created: {student.student_name} id={student_id} photo={photo_value}")
 

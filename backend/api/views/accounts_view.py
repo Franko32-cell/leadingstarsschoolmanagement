@@ -1,6 +1,7 @@
 # api/views/accounts_view.py
 
 from rest_framework.views import APIView
+from api.permissions.role_permissions import IsAdmin
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -18,7 +19,7 @@ TERM_LABELS = {
 class AccountsDashboardView(APIView):
     """Overall financial summary across all classes and terms."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
 
     def get(self, request):
         term         = request.query_params.get("term")
@@ -108,7 +109,7 @@ class AccountsDashboardView(APIView):
 class IncomeLedgerView(APIView):
     """Full transaction log with filtering."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
 
     def get(self, request):
         term         = request.query_params.get("term")
@@ -155,7 +156,7 @@ class IncomeLedgerView(APIView):
 class FeeCollectionReportView(APIView):
     """Per-class fee collection breakdown."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
 
     def get(self, request):
         term = request.query_params.get("term")
@@ -204,7 +205,7 @@ class FeeCollectionReportView(APIView):
 class DefaultersListView(APIView):
     """Students with outstanding fee balances."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
 
     def get(self, request):
         term         = request.query_params.get("term")
