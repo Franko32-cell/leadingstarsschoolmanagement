@@ -205,6 +205,31 @@ const TeacherPortal = () => {
     setScoreModal(null);
   };
 
+  const modalScores = scoreModal
+    ? results.scores[scoreModal.studentId] ?? {}
+    : {};
+  const modalBreakdowns = scoreModal
+    ? results.breakdowns[scoreModal.studentId] ?? {}
+    : {};
+  const reopenSavedScore = parseFloat(modalScores.reopen) > 0 ? modalScores.reopen : null;
+  const caSavedScore = parseFloat(modalScores.ca) > 0 ? modalScores.ca : null;
+  const examsSavedScore = parseFloat(modalScores.exams) > 0 ? modalScores.exams : null;
+  const reopenInitial = modalBreakdowns.reopen ?? (
+    reopenSavedScore != null
+      ? {
+          reopen_raw: Math.min(10, parseFloat(reopenSavedScore)),
+          rda: Math.round(
+            (parseFloat(reopenSavedScore) - Math.min(10, parseFloat(reopenSavedScore))) * 10
+          ) / 10,
+        }
+      : null
+  );
+  const examsInitial = modalBreakdowns.exams ?? (
+    examsSavedScore != null
+      ? { exam_raw: Math.round((parseFloat(examsSavedScore) / 40) * 100 * 10) / 10 }
+      : null
+  );
+
   // ── Class change ─────────────────────────────────────────────────────────
   const handleClassChange = (classId) => {
     teacherData.changeClass(classId, teacherData.classes);
@@ -222,24 +247,34 @@ const TeacherPortal = () => {
       {/* Score entry modals */}
       {scoreModal?.type === "reopen" && (
         <ReopenModal
+          key={`reopen-${scoreModal.studentId}`}
           studentName={scoreModal.studentName}
-          initial={results.breakdowns[scoreModal.studentId]?.reopen}
+          initial={reopenInitial}
+          savedScore={reopenSavedScore}
+          estimated={!modalBreakdowns.reopen && reopenSavedScore != null}
           onApply={applyReopen}
           onClose={() => setScoreModal(null)}
         />
       )}
       {scoreModal?.type === "ca" && (
         <CAModal
+          key={`ca-${scoreModal.studentId}`}
           studentName={scoreModal.studentName}
-          initial={results.breakdowns[scoreModal.studentId]?.ca}
+          initial={modalBreakdowns.ca}
+          savedScore={caSavedScore}
+          legacyTotal={
+            !modalBreakdowns.ca && caSavedScore != null ? caSavedScore : null
+          }
           onApply={applyCA}
           onClose={() => setScoreModal(null)}
         />
       )}
       {scoreModal?.type === "exams" && (
         <ExamsModal
+          key={`exams-${scoreModal.studentId}`}
           studentName={scoreModal.studentName}
-          initial={results.breakdowns[scoreModal.studentId]?.exams}
+          initial={examsInitial}
+          savedScore={examsSavedScore}
           onApply={applyExams}
           onClose={() => setScoreModal(null)}
         />

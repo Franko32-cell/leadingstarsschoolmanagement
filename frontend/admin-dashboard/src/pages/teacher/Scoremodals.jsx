@@ -15,9 +15,24 @@ const CheckIcon = () => (
   </svg>
 );
 
+const SavedScoreNotice = ({ children }) => (
+  <div style={{
+    margin: "12px 18px 0",
+    padding: "10px 12px",
+    borderRadius: "8px",
+    border: "1px solid #fde68a",
+    background: "#fffbeb",
+    color: "#92400e",
+    fontSize: "12px",
+    lineHeight: 1.5,
+  }}>
+    {children}
+  </div>
+);
+
 // ── ReopenModal ───────────────────────────────────────────────────────────
 
-export function ReopenModal({ studentName, initial, onApply, onClose }) {
+export function ReopenModal({ studentName, initial, savedScore, estimated, onApply, onClose }) {
   const [vals, setVals] = useState({
     reopen_raw: initial?.reopen_raw ?? "",
     rda:        initial?.rda        ?? "",
@@ -33,10 +48,18 @@ export function ReopenModal({ studentName, initial, onApply, onClose }) {
         <div className="tp-modal-header">
           <div>
             <p className="tp-modal-title">Re-Open Score</p>
-            <p className="tp-modal-subtitle">{studentName}</p>
+            <p className="tp-modal-subtitle">
+              {studentName}{savedScore != null ? ` · saved: ${savedScore}` : ""}
+            </p>
           </div>
           <button className="tp-modal-close" onClick={onClose}>✕</button>
         </div>
+
+        {estimated && (
+          <SavedScoreNotice>
+            Saved total is {savedScore}/20. The Re-Open / RDA split wasn't stored for this record, so it has been estimated. Adjust it if needed.
+          </SavedScoreNotice>
+        )}
 
         <div className="tp-modal-body">
           <div className="tp-modal-preview">
@@ -101,7 +124,7 @@ export function ReopenModal({ studentName, initial, onApply, onClose }) {
 
 // ── CAModal ───────────────────────────────────────────────────────────────
 
-export function CAModal({ studentName, initial, onApply, onClose }) {
+export function CAModal({ studentName, initial, savedScore, legacyTotal, onApply, onClose }) {
   const [vals, setVals] = useState({
     hw1: initial?.hw1 ?? "", hw2: initial?.hw2 ?? "", hw3: initial?.hw3 ?? "", hw4: initial?.hw4 ?? "",
     cw1: initial?.cw1 ?? "", cw2: initial?.cw2 ?? "", cw3: initial?.cw3 ?? "", cw4: initial?.cw4 ?? "",
@@ -141,10 +164,18 @@ export function CAModal({ studentName, initial, onApply, onClose }) {
         <div className="tp-modal-header">
           <div>
             <p className="tp-modal-title">CA / MGT Score</p>
-            <p className="tp-modal-subtitle">{studentName} · CA (25%) + MGT Test (15%) = 40%</p>
+            <p className="tp-modal-subtitle">
+              {studentName}{savedScore != null ? ` · saved: ${savedScore}` : ""} · CA (25%) + MGT Test (15%) = 40%
+            </p>
           </div>
           <button className="tp-modal-close" onClick={onClose}>✕</button>
         </div>
+
+        {legacyTotal != null && (
+          <SavedScoreNotice>
+            Saved total is {legacyTotal}/40, but the HW / CW / CT / MGT marks weren't stored for this record. Re-enter them to replace it, or Cancel to keep the saved total.
+          </SavedScoreNotice>
+        )}
 
         <div className="tp-modal-body">
           <div className="tp-modal-preview">
@@ -275,7 +306,7 @@ export function CAModal({ studentName, initial, onApply, onClose }) {
 
 // ── ExamsModal ────────────────────────────────────────────────────────────
 
-export function ExamsModal({ studentName, initial, onApply, onClose }) {
+export function ExamsModal({ studentName, initial, savedScore, onApply, onClose }) {
   const [examRaw, setExamRaw] = useState(initial?.exam_raw ?? "");
   const reset = () => setExamRaw("");
   const raw   = parseFloat(examRaw) || 0;
@@ -287,7 +318,9 @@ export function ExamsModal({ studentName, initial, onApply, onClose }) {
         <div className="tp-modal-header">
           <div>
             <p className="tp-modal-title">Examination Score</p>
-            <p className="tp-modal-subtitle">{studentName}</p>
+            <p className="tp-modal-subtitle">
+              {studentName}{savedScore != null ? ` · saved: ${savedScore}` : ""}
+            </p>
           </div>
           <button className="tp-modal-close" onClick={onClose}>✕</button>
         </div>

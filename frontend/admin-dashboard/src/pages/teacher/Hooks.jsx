@@ -5,8 +5,20 @@
 
 import { useState, useCallback, useRef } from "react";
 import * as svc from "./Teacherportalservice";
-import { mkDefaultCharState } from "./Helpers";
+import {
+  calcCAScore,
+  calcExamsScore,
+  calcReopenScore,
+  mkDefaultCharState,
+} from "./Helpers";
 import * as elearningSvc from "./elearningService";
+
+const breakdownMatches = (breakdown, total, calculate) =>
+  Boolean(
+    breakdown &&
+    typeof breakdown === "object" &&
+    Math.abs(calculate(breakdown) - (parseFloat(total) || 0)) < 0.11
+  );
 
 // ── useTeacherData ────────────────────────────────────────────────────────
 // Loads classes, subjects, and students. Resets derived state on class change.
@@ -257,12 +269,18 @@ export function useResults() {
 
   const load = useCallback(async (classId, term, subjectId, year, students) => {
     if (!classId || !term || !subjectId || !students.length) return;
+    setError("");
     try {
       const records   = await svc.fetchResults(classId, term, subjectId, year);
       const serverMap = Object.fromEntries(
         records.map((rec) => [
           String(rec.student),
-          { reopen: rec.reopen, ca: rec.ca, exams: rec.exams },
+          {
+            reopen: rec.reopen,
+            ca: rec.ca,
+            exams: rec.exams,
+            breakdown: rec.breakdown,
+          },
         ])
       );
       const idMap = Object.fromEntries(records.map((rec) => [rec.student, rec.id]));
@@ -271,13 +289,33 @@ export function useResults() {
         Object.fromEntries(
           students.map((s) => [
             s.id,
-            serverMap[String(s.id)] ?? { reopen: "", ca: "", exams: "" },
+            serverMap[String(s.id)]
+              ? {
+                  reopen: serverMap[String(s.id)].reopen,
+                  ca: serverMap[String(s.id)].ca,
+                  exams: serverMap[String(s.id)].exams,
+                }
+              : { reopen: "", ca: "", exams: "" },
           ])
+        )
+      );
+      setBreakdowns(
+        Object.fromEntries(
+          students.flatMap((s) => {
+            const result = serverMap[String(s.id)];
+            if (!result) return [];
+            const bd = result.breakdown ?? {};
+            const saved = {};
+            if (breakdownMatches(bd.rk, result.reopen, calcReopenScore)) saved.reopen = bd.rk;
+            if (breakdownMatches(bd.ca, result.ca, calcCAScore)) saved.ca = bd.ca;
+            if (breakdownMatches(bd.ex, result.exams, calcExamsScore)) saved.exams = bd.ex;
+            return Object.keys(saved).length ? [[s.id, saved]] : [];
+          })
         )
       );
       setExistingIds(idMap);
     } catch {
-      // Silent — caller shows an error if needed
+      setError("Failed to load existing results.");
     }
   }, []);
 
@@ -305,6 +343,11 @@ export function useResults() {
           reopen: parseFloat(v.reopen) || 0,
           ca:     parseFloat(v.ca)     || 0,
           exams:  parseFloat(v.exams)  || 0,
+          breakdown: {
+            rk: breakdowns[sid]?.reopen ?? null,
+            ca: breakdowns[sid]?.ca ?? null,
+            ex: breakdowns[sid]?.exams ?? null,
+          },
         }));
 
       if (!records.length) {
@@ -332,7 +375,7 @@ export function useResults() {
         setSaving(false);
       }
     },
-    [scores, load]
+    [scores, breakdowns, load]
   );
 
   const deleteOne = useCallback(async (studentId) => {
