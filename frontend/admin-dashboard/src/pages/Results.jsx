@@ -10,14 +10,9 @@ const TERMS = [
   { value: "term3", label: "Term 3" },
 ];
 
-// FIX: was "term3" — stale after the school moved on to Term 1 2026.
 // NOTE: this constant ONLY controls (a) the initial dropdown selection on
 // page load and (b) the cosmetic "(current)" label / green header badge.
-// It does NOT restrict which term can be selected, edited, or saved —
-// the TERMS dropdown always lists all three terms, and submitResults()/
-// the bulk-save API call send whatever term/year is currently selected
-// with no gating at all. Editing a past term (e.g. Term 3 2026) has
-// always been fully supported; only the default/"current" label was wrong.
+// It does NOT restrict which term can be selected, edited, or saved.
 const CURRENT_TERM = "term1";
 const CURRENT_YEAR = 2026;
 const YEARS = [2026, 2025, 2024, 2023, 2022];
@@ -119,6 +114,21 @@ const calcCAonly       = (b) => {
 };
 const calcMGTScore    = (b) => Math.round(Math.min(15, parseFloat(b.mgt_raw) || 0) * 10) / 10;
 const calcCAScore     = (b) => Math.round((calcCAonly(b) + calcMGTScore(b)) * 10) / 10;
+const calcExamScore   = (b) => Math.round(((parseFloat(b.exam_raw) || 0) / 100) * 40 * 10) / 10;
+
+/* Rebuild a breakdown from a saved total when none was stored (older records) */
+const exFromScore = (score) => ({
+  exam_raw: Math.round((parseFloat(score) / 40) * 100 * 10) / 10,   // exact
+});
+const rkFromScore = (score) => {                                     // split is an estimate
+  const s = parseFloat(score) || 0;
+  const r = Math.min(10, s);
+  return { reopen_raw: r, rda: Math.round((s - r) * 10) / 10 };
+};
+
+/* A stored breakdown is only trusted if it still adds up to the saved total */
+const bdMatches = (bd, total, calc) =>
+  !!bd && typeof bd === "object" && Math.abs(calc(bd) - (parseFloat(total) || 0)) < 0.11;
 
 /* ─────────────────────────────────────────────
    Empty student state factory
@@ -632,6 +642,10 @@ const STYLES = `
     padding:20px 22px; display:flex; flex-direction:column; gap:18px;
     max-height:72vh; overflow-y:auto;
   }
+  .res-modal-notice {
+    padding:9px 12px; background:var(--amber-l); border:1px solid #fcd34d;
+    border-radius:8px; font-size:12px; color:#92400e; line-height:1.5;
+  }
   .res-modal-section { display:flex; flex-direction:column; gap:8px; }
   .res-modal-section-label {
     font-size:10.5px; font-weight:700; color:var(--muted);
@@ -830,7 +844,7 @@ function DeleteConfirm({ studentName, onConfirm, onCancel, deleting }) {
 /* ─────────────────────────────────────────────
    Modal shell — shared header/footer layout
 ───────────────────────────────────────────── */
-function ModalShell({ title, subtitle, maxWidth = 500, onClose, onApply, applyLabel, children }) {
+function ModalShell({ title, subtitle, maxWidth = 500, onClose, onApply, applyLabel, notice, children }) {
   // Close on Escape
   useEffect(() => {
     const handler = (e) => { if (e.key === "Escape") onClose(); };
@@ -848,7 +862,10 @@ function ModalShell({ title, subtitle, maxWidth = 500, onClose, onApply, applyLa
           </div>
           <button className="res-modal-close" onClick={onClose} aria-label="Close">✕</button>
         </div>
-        <div className="res-modal-body">{children}</div>
+        <div className="res-modal-body">
+          {notice && <div className="res-modal-notice" role="note">{notice}</div>}
+          {children}
+        </div>
         <div className="res-modal-footer">
           <button className="res-modal-btn-cancel" onClick={onClose}>Cancel</button>
           <button className="res-modal-btn-apply" onClick={onApply}>
@@ -863,7 +880,7 @@ function ModalShell({ title, subtitle, maxWidth = 500, onClose, onApply, applyLa
 /* ─────────────────────────────────────────────
    REOPEN MODAL
 ───────────────────────────────────────────── */
-function ReopenModal({ studentName, initial, savedScore, onApply, onClose }) {
+function ReopenModal({ studentName, initial, savedScore, estimated, onApply, onClose }) {
   const [vals, setVals] = useState({
     reopen_raw: initial?.reopen_raw ?? "",
     rda:        initial?.rda        ?? "",
@@ -879,6 +896,9 @@ function ReopenModal({ studentName, initial, savedScore, onApply, onClose }) {
       onClose={onClose}
       onApply={() => onApply(score, vals)}
       applyLabel={`Apply ${score.toFixed(1)} / 20`}
+      notice={estimated
+        ? `Saved total is ${savedScore}/20. The Re-Open / RDA split wasn't stored for this record, so it has been estimated. Adjust it if needed.`
+        : null}
     >
       <div className="res-modal-preview">
         <div className="res-modal-preview-item">
@@ -923,7 +943,7 @@ function ReopenModal({ studentName, initial, savedScore, onApply, onClose }) {
 /* ─────────────────────────────────────────────
    CA / MGT MODAL
 ───────────────────────────────────────────── */
-function CAModal({ studentName, initial, savedScore, onApply, onClose }) {
+function CAModal({ studentName, initial, savedScore, legacyTotal, onApply, onClose }) {
   const [vals, setVals] = useState({
     hw1: initial?.hw1 ?? "", hw2: initial?.hw2 ?? "", hw3: initial?.hw3 ?? "", hw4: initial?.hw4 ?? "",
     cw1: initial?.cw1 ?? "", cw2: initial?.cw2 ?? "", cw3: initial?.cw3 ?? "", cw4: initial?.cw4 ?? "",
@@ -957,6 +977,9 @@ function CAModal({ studentName, initial, savedScore, onApply, onClose }) {
       onClose={onClose}
       onApply={() => onApply(combined, vals)}
       applyLabel={`Apply ${combined.toFixed(1)} / 40`}
+      notice={legacyTotal != null
+        ? `Saved total is ${legacyTotal}/40, but the HW / CW / CT / MGT marks weren't stored for this record. Re-enter them to replace it, or Cancel to keep the saved total.`
+        : null}
     >
       {/* Live preview */}
       <div className="res-modal-preview">
@@ -1181,7 +1204,7 @@ const ScoreCell = React.memo(function ScoreCell({
 const Results = () => {
   // Inject styles once, clean up on unmount
   useEffect(() => {
-    const STYLE_ID = "res-styles-v4";
+    const STYLE_ID = "res-styles-v5";
     if (document.getElementById(STYLE_ID)) return;
     const el = document.createElement("style");
     el.id = STYLE_ID;
@@ -1209,21 +1232,14 @@ const Results = () => {
   const [classLevel,      setClassLevel]      = useState("basic_7_9");
 
   /*
-   * ── Unified per-student state map ──────────────────────────────────────
-   *
-   * Instead of 5 parallel Maps (scores, savedScores, breakdowns, existingIds,
-   * touchedStudents), we keep a single map:
-   *
+   * Unified per-student state map:
    *   studentState: { [studentId]: {
-   *     reopen, ca, exams,           ← live scores
-   *     savedReopen, savedCa, savedExams, ← last server-confirmed values
-   *     rkBreakdown, caBreakdown, exBreakdown,
+   *     reopen, ca, exams,                 ← live scores
+   *     savedReopen, savedCa, savedExams,  ← last server-confirmed values
+   *     rkBreakdown, caBreakdown, exBreakdown,  ← input marks (persisted server-side)
    *     existingId,
    *     touched,
    *   }}
-   *
-   * This means every update is one setState call and there are no stale-
-   * closure races between parallel state slices.
    */
   const [studentState, setStudentState] = useState({});
 
@@ -1261,16 +1277,12 @@ const Results = () => {
   }, [selectedClass, selectedSubject, selectedTerm, selectedYear]);
 
   /*
-   * ── Load existing scores from server ────────────────────────────────────
-   *
-   * Using a ref for the "touched" set avoids the stale-closure problem from
-   * the original code. The ref always reflects the current Set without
-   * making loadExistingScores depend on it (which would cause an infinite loop
-   * via the useEffect below).
+   * Load existing scores from server.
+   * A ref tracks which students are "touched" so loadExistingScores doesn't
+   * depend on it (avoids an infinite effect loop).
    */
   const touchedRef = useRef(new Set());
 
-  // Keep ref in sync with the touched flags stored in studentState
   useEffect(() => {
     touchedRef.current = new Set(
       Object.entries(studentState)
@@ -1291,8 +1303,13 @@ const Results = () => {
       const serverMap = {};
       const idMap     = {};
       records.forEach(r => {
-        serverMap[r.student] = { reopen: r.reopen ?? "", ca: r.ca ?? "", exams: r.exams ?? "" };
-        idMap[r.student]     = r.id;
+        serverMap[r.student] = {
+          reopen: r.reopen ?? "",
+          ca:     r.ca     ?? "",
+          exams:  r.exams  ?? "",
+          bd:     r.breakdown || null,
+        };
+        idMap[r.student] = r.id;
       });
 
       const touched = touchedRef.current;
@@ -1300,9 +1317,17 @@ const Results = () => {
       setStudentState(prev => {
         const next = {};
         studentList.forEach(s => {
-          const sv  = serverMap[s.id] || { reopen: "", ca: "", exams: "" };
+          const sv  = serverMap[s.id] || { reopen: "", ca: "", exams: "", bd: null };
           const cur = prev[s.id]      || emptyStudentState();
           const isTouched = touched.has(String(s.id));
+
+          // Only trust a stored breakdown if it still adds up to the saved total.
+          const svRk = bdMatches(sv.bd?.rk, sv.reopen, calcReopenScore) ? sv.bd.rk : null;
+          const svCa = bdMatches(sv.bd?.ca, sv.ca,     calcCAScore)     ? sv.bd.ca : null;
+          const svEx = bdMatches(sv.bd?.ex, sv.exams,  calcExamScore)   ? sv.bd.ex : null;
+
+          // Touched students keep their in-progress breakdown; otherwise server wins.
+          const pick = (curBd, svBd) => (isTouched && curBd) ? curBd : (svBd ?? curBd ?? null);
 
           next[s.id] = {
             ...cur,
@@ -1311,6 +1336,9 @@ const Results = () => {
             savedCa:     sv.ca,
             savedExams:  sv.exams,
             existingId:  idMap[s.id] ?? null,
+            rkBreakdown: pick(cur.rkBreakdown, svRk),
+            caBreakdown: pick(cur.caBreakdown, svCa),
+            exBreakdown: pick(cur.exBreakdown, svEx),
             // Live scores: protect touched students, server wins for untouched
             reopen: isTouched && cur.reopen !== "" ? cur.reopen : sv.reopen,
             ca:     isTouched && cur.ca     !== "" ? cur.ca     : sv.ca,
@@ -1328,7 +1356,7 @@ const Results = () => {
     } finally {
       setLoadingScores(false);
     }
-  }, [selectedClass, selectedTerm, selectedSubject, selectedYear]); // touchedRef is stable
+  }, [selectedClass, selectedTerm, selectedSubject, selectedYear]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Fire score load when students + all filters are ready ── */
   useEffect(() => {
@@ -1356,7 +1384,6 @@ const Results = () => {
     setExpandedStudent(null);
     const found = classes.find(c => String(c.id) === String(id));
     setClassLevel(found?.level || "basic_7_9");
-    // studentState reset is handled by the filter-change useEffect
   }, [classes]);
 
   /* ── Unified modal apply handler ── */
@@ -1449,6 +1476,13 @@ const Results = () => {
           reopen: parseFloat(cur.reopen !== "" ? cur.reopen : (sv.reopen || 0)),
           ca:     parseFloat(cur.ca     !== "" ? cur.ca     : (sv.ca     || 0)),
           exams:  parseFloat(cur.exams  !== "" ? cur.exams  : (sv.exams  || 0)),
+          // Input marks behind each total, so the modals can be re-filled later.
+          // The server merges these (a null part never wipes a stored one).
+          breakdown: {
+            rk: st.rkBreakdown ?? null,
+            ca: st.caBreakdown ?? null,
+            ex: st.exBreakdown ?? null,
+          },
         };
       })
       .filter(Boolean);
@@ -1468,7 +1502,6 @@ const Results = () => {
         toast(`Saved ${res.data.saved} with ${errCount} error(s).`, "info");
         console.error("Bulk save errors:", res.data.errors);
       }
-      // Pass the current students snapshot into reload — not a closure risk
       await loadExistingScores(students);
       // Clear all touched flags after successful save
       setStudentState(prev => {
@@ -1477,8 +1510,9 @@ const Results = () => {
         return next;
       });
     } catch (err) {
-      toast(err.response?.data?.detail || "Error saving results.", "error");
-      console.error("Submit error:", err.response?.data);
+      const data = err.response?.data;
+      toast(data?.detail || data?.errors?.[0]?.error || "Error saving results.", "error");
+      console.error("Submit error:", data);
     } finally {
       setSaving(false);
     }
@@ -1520,6 +1554,56 @@ const Results = () => {
 
   const saveProgress = students.length > 0 ? Math.round((savedCount / students.length) * 100) : 0;
 
+  /* ── Modal render helper (reads saved totals + breakdowns for the open student) ── */
+  const renderModal = () => {
+    if (!modal) return null;
+    const st = studentState[modal.studentId] || emptyStudentState();
+    const hasTotal = (v) => parseFloat(v) > 0;   // server returns 0 for "nothing entered"
+
+    if (modal.type === "reopen") {
+      const has = hasTotal(st.reopen);
+      return (
+        <ReopenModal
+          key={`reopen-${modal.studentId}`}
+          studentName={modal.studentName}
+          initial={st.rkBreakdown || (has ? rkFromScore(st.reopen) : null)}
+          estimated={!st.rkBreakdown && has}
+          savedScore={has ? st.reopen : null}
+          onApply={applyReopen}
+          onClose={() => setModal(null)}
+        />
+      );
+    }
+    if (modal.type === "ca") {
+      const has = hasTotal(st.ca);
+      return (
+        <CAModal
+          key={`ca-${modal.studentId}`}
+          studentName={modal.studentName}
+          initial={st.caBreakdown}
+          legacyTotal={!st.caBreakdown && has ? st.ca : null}
+          savedScore={has ? st.ca : null}
+          onApply={applyCA}
+          onClose={() => setModal(null)}
+        />
+      );
+    }
+    if (modal.type === "exams") {
+      const has = hasTotal(st.exams);
+      return (
+        <ExamsModal
+          key={`exams-${modal.studentId}`}
+          studentName={modal.studentName}
+          initial={st.exBreakdown || (has ? exFromScore(st.exams) : null)}
+          savedScore={has ? st.exams : null}
+          onApply={applyExams}
+          onClose={() => setModal(null)}
+        />
+      );
+    }
+    return null;
+  };
+
   /* ─────────────────────────────────────────────
      Render
   ───────────────────────────────────────────── */
@@ -1527,33 +1611,7 @@ const Results = () => {
     <div className="res-root">
 
       {/* Modals */}
-      {modal?.type === "reopen" && (
-        <ReopenModal
-          studentName={modal.studentName}
-          initial={studentState[modal.studentId]?.rkBreakdown}
-          savedScore={studentState[modal.studentId]?.savedReopen !== "" ? studentState[modal.studentId]?.savedReopen : null}
-          onApply={applyReopen}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "ca" && (
-        <CAModal
-          studentName={modal.studentName}
-          initial={studentState[modal.studentId]?.caBreakdown}
-          savedScore={studentState[modal.studentId]?.savedCa !== "" ? studentState[modal.studentId]?.savedCa : null}
-          onApply={applyCA}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "exams" && (
-        <ExamsModal
-          studentName={modal.studentName}
-          initial={studentState[modal.studentId]?.exBreakdown}
-          savedScore={studentState[modal.studentId]?.savedExams !== "" ? studentState[modal.studentId]?.savedExams : null}
-          onApply={applyExams}
-          onClose={() => setModal(null)}
-        />
-      )}
+      {renderModal()}
 
       {/* Delete confirm dialog */}
       {deleteTarget && (
@@ -1850,7 +1908,7 @@ const Results = () => {
 
                               <td>
                                 <ScoreCell
-                                  field="reopen" value={st.reopen} savedValue={st.savedReopen}
+                                  value={st.reopen} savedValue={st.savedReopen}
                                   breakdown={rkBd} breakdownLabel="Re-Open raw + RDA"
                                   max={20}
                                   onOpen={() => setModal({ type: "reopen", studentId: student.id, studentName: name })}
@@ -1859,7 +1917,7 @@ const Results = () => {
 
                               <td>
                                 <ScoreCell
-                                  field="ca" value={st.ca} savedValue={st.savedCa}
+                                  value={st.ca} savedValue={st.savedCa}
                                   breakdown={caBd} breakdownLabel="CA scaled + MGT"
                                   max={40}
                                   onOpen={() => setModal({ type: "ca", studentId: student.id, studentName: name })}
@@ -1868,7 +1926,7 @@ const Results = () => {
 
                               <td>
                                 <ScoreCell
-                                  field="exams" value={st.exams} savedValue={st.savedExams}
+                                  value={st.exams} savedValue={st.savedExams}
                                   breakdown={exBd} breakdownLabel="Exam raw score"
                                   max={40}
                                   onOpen={() => setModal({ type: "exams", studentId: student.id, studentName: name })}

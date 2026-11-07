@@ -150,6 +150,67 @@ def _assign_ranks(rows: list[dict], key: str = "total_score") -> None:
 
 
 # ---------------------------------------------------------------------------
+# Score breakdown (input marks behind reopen / ca / exams)
+# ---------------------------------------------------------------------------
+
+BREAKDOWN_KEYS = ("rk", "ca", "ex")
+_CA_KEYS = [f"{p}{i}" for p in ("hw", "cw", "ct") for i in range(1, 5)]
+_BD_TOLERANCE = 0.11   # the frontend rounds to 1 dp at each step
+
+
+def _num(v) -> float:
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        raise ValueError("breakdown values must be numbers")
+
+
+def _breakdown_total(key: str, bd: dict) -> float:
+    """Mirrors calcReopenScore / calcCAScore / the exam scaling in the frontend."""
+    if key == "rk":
+        return min(10, _num(bd.get("reopen_raw"))) + min(10, _num(bd.get("rda")))
+    if key == "ca":
+        raw = sum(_num(bd.get(k)) for k in _CA_KEYS)
+        return raw / 110 * 25 + min(15, _num(bd.get("mgt_raw")))
+    return _num(bd.get("exam_raw")) / 100 * 40   # "ex"
+
+
+def merge_breakdown(existing, incoming, totals: dict):
+    """
+    Merge incoming breakdown parts over the stored ones. A missing/null part
+    never wipes a stored one. Afterwards, any part whose derived total no
+    longer matches the saved component value is dropped, so a stale breakdown
+    is never served (the frontend then falls back to its notice flow).
+    Raises ValueError on malformed input.
+    """
+    merged = dict(existing) if isinstance(existing, dict) else {}
+
+    if incoming is not None:
+        if not isinstance(incoming, dict):
+            raise ValueError("breakdown must be an object")
+        unknown = set(incoming) - set(BREAKDOWN_KEYS)
+        if unknown:
+            raise ValueError(f"Unknown breakdown keys: {sorted(unknown)}")
+        for key in BREAKDOWN_KEYS:
+            part = incoming.get(key)
+            if part is None:
+                continue
+            if not isinstance(part, dict):
+                raise ValueError(f"breakdown.{key} must be an object")
+            _breakdown_total(key, part)      # raises ValueError if non-numeric
+            merged[key] = part
+
+    for key in list(merged):
+        try:
+            if abs(_breakdown_total(key, merged[key]) - totals[key]) > _BD_TOLERANCE:
+                del merged[key]
+        except (ValueError, KeyError, AttributeError):
+            del merged[key]
+
+    return merged or None
+
+
+# ---------------------------------------------------------------------------
 # ViewSet
 # ---------------------------------------------------------------------------
 
@@ -179,29 +240,12 @@ class ResultViewSet(ModelViewSet):
         if student: qs = qs.filter(student_id=student)
 
         if school_class:
-            # FIX: was `qs.filter(school_class_id=school_class)`, which
-            # filters on Result.school_class — a value that's only set at
-            # save time and can go stale (e.g. a student is promoted/moved
-            # to a new class after their result was saved; the model's
-            # unique_together doesn't even include school_class, see
-            # _computed_score() docstring above).
-            #
-            # bulk_save()'s update_or_create() intentionally keys on
-            # student + subject + term + year, NOT school_class — meaning
-            # school_class is not actually part of a Result's identity.
-            # Filtering GET-list by the stale Result.school_class caused
-            # existing rows to silently disappear from "Enter Results"
-            # whenever a student's current class no longer matched what
-            # was stored on the row: the frontend then rendered empty
-            # score fields as if nothing had ever been saved, when a row
-            # existed all along and bulk_save would have found and
-            # updated it.
-            #
-            # Filtering on the student's CURRENT class instead keeps this
-            # query consistent with how bulk_save identifies "this
-            # student's result," so previously-saved scores reliably show
-            # up for observation/editing whenever the matching
-            # class/subject/term/year is selected.
+            # Filter on the student's CURRENT class (not the save-time
+            # Result.school_class, which can go stale when a student is
+            # moved/promoted). This keeps the list consistent with how
+            # bulk_save identifies "this student's result"
+            # (student + subject + term + year, not school_class), so
+            # previously-saved scores reliably show up in "Enter Results".
             qs = qs.filter(student__school_class_id=school_class)
 
         if term:    qs = qs.filter(term=term)
@@ -259,12 +303,12 @@ class ResultViewSet(ModelViewSet):
             "score":   instance.score,
         }
         subject_id       = instance.subject_id
-        term              = instance.term
+        term             = instance.term
         # Use the student's CURRENT class, not instance.school_class_id
         # (which is just whatever was saved on this row and can go stale) —
         # captured before delete() since instance.student is still needed.
-        school_class_id   = instance.student.school_class_id
-        year              = instance.year
+        school_class_id  = instance.student.school_class_id
+        year             = instance.year
 
         instance.delete()
 
@@ -293,6 +337,12 @@ class ResultViewSet(ModelViewSet):
         {reopen, ca, exams}. Fields that are omitted or None are preserved
         from the existing database row — they are NOT zeroed out.
 
+        Each record may also carry a `breakdown` object
+        ({"rk": {...}, "ca": {...}, "ex": {...}}) holding the input marks
+        behind the component totals. It is merged over the stored breakdown
+        (a null/missing part never wipes a stored one), and any part that no
+        longer adds up to the saved component value is dropped.
+
         Component values are validated against the same caps as the model
         (reopen ≤20, ca ≤40, exams ≤40) so the total can never silently
         exceed 100 — update_or_create() bypasses model-field validators,
@@ -303,17 +353,12 @@ class ResultViewSet(ModelViewSet):
         records = request.data if isinstance(request.data, list) else [request.data]
         saved   = []
         errors  = []
-        # Derived from what was actually saved (not raw request data), so a
-        # record that omitted `school_class` still recomputes positions for
-        # the class the row actually ended up in.
-        #
         # combos stores the STUDENT'S CURRENT class (not instance.school_class_id,
         # which is just whatever got saved on the row and can go stale if the
         # student is later moved to a different class). recompute_subject_positions
-        # now ranks by student__school_class_id, so combos must match that.
+        # ranks by student__school_class_id, so combos must match that.
         # current_class_cache avoids re-querying the same student's class
-        # multiple times in one bulk-save batch (e.g. several subjects for
-        # the same student).
+        # multiple times in one bulk-save batch.
         combos: set = set()
         current_class_cache: dict = {}
 
@@ -373,6 +418,23 @@ class ResultViewSet(ModelViewSet):
 
                 if component_errors:
                     errors.append({"record": record, "error": "; ".join(component_errors)})
+                    continue
+
+                # Merge the input-mark breakdown over whatever is stored, and
+                # drop any part that no longer matches the component totals
+                # being saved.
+                try:
+                    defaults["breakdown"] = merge_breakdown(
+                        existing.breakdown if existing else None,
+                        record.get("breakdown"),
+                        {
+                            "rk": defaults["reopen"],
+                            "ca": defaults["ca"],
+                            "ex": defaults["exams"],
+                        },
+                    )
+                except ValueError as exc:
+                    errors.append({"record": record, "error": str(exc)})
                     continue
 
                 instance, _ = Result.objects.update_or_create(
@@ -441,15 +503,9 @@ class ResultViewSet(ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # FIX: was `school_class_id=school_class` — filtering on Result's
-        # own (denormalized, save-time-only) school_class field. Same issue
-        # as get_queryset() above: if a student moved classes after a
-        # result was saved, that row's stored school_class goes stale and
-        # the row would silently drop out of this summary even though it's
-        # still that student's live, editable result. Filtering on the
-        # student's CURRENT class keeps the class summary consistent with
-        # both the "Enter Results" list and bulk_save's own lookup key
-        # (student + subject + term + year, not school_class).
+        # Filter on the student's CURRENT class (not Result.school_class,
+        # which is save-time-only and can go stale) so the summary stays
+        # consistent with "Enter Results" and bulk_save's lookup key.
         qs = Result.objects.filter(
             student__school_class_id=school_class,
             term=term,
@@ -467,11 +523,8 @@ class ResultViewSet(ModelViewSet):
             sid        = r.student.id
             level      = getattr(r.student.school_class, "level", "basic_7_9") if r.student.school_class else "basic_7_9"
             thresholds = get_thresholds(level)
-            # FIX: recompute from components instead of trusting r.score,
-            # which has been found to be stale/out-of-sync for some rows
-            # (see _computed_score() docstring). Using the raw column here
-            # let a student's class-summary total/rank disagree with the
-            # total shown on their individual report card.
+            # Recompute from components instead of trusting r.score, which
+            # has been found stale for some rows (see _computed_score()).
             score      = _computed_score(r)
             grade, remark = get_grade_and_remark(score, thresholds)
 
@@ -498,10 +551,6 @@ class ResultViewSet(ModelViewSet):
                 "subject_position": r.subject_position,
             })
 
-            # _computed_score() always returns a float, so every result now
-            # contributes to the total (previously guarded by
-            # `if r.score is not None`, which was a proxy for "row has a
-            # score" that's no longer meaningful once we compute it live).
             student_map[sid]["total_score"] += score
             student_map[sid]["count"]        += 1
 

@@ -3,6 +3,8 @@ from rest_framework import serializers
 from apps.results.models import Result
 from api.views.grades import get_grade_and_remark, get_thresholds
 
+BREAKDOWN_KEYS = {"rk", "ca", "ex"}
+
 
 class ResultSerializer(serializers.ModelSerializer):
     student_name = serializers.SerializerMethodField()
@@ -29,6 +31,7 @@ class ResultSerializer(serializers.ModelSerializer):
             "reopen",
             "ca",
             "exams",
+            "breakdown",        # input marks behind reopen/ca/exams
             "score",            # computed in model.save(), read-only
             "grade",            # computed here from score + level
             "remark",           # computed here from score + level
@@ -36,6 +39,23 @@ class ResultSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["score", "subject_position", "created_at", "grade", "remark"]
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+
+    def validate_breakdown(self, value):
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("breakdown must be an object.")
+        unknown = set(value) - BREAKDOWN_KEYS
+        if unknown:
+            raise serializers.ValidationError(f"Unknown keys: {sorted(unknown)}")
+        for k, v in value.items():
+            if v is not None and not isinstance(v, dict):
+                raise serializers.ValidationError(f"'{k}' must be an object or null.")
+        return value
 
     # ------------------------------------------------------------------
     # Helpers
@@ -60,7 +80,6 @@ class ResultSerializer(serializers.ModelSerializer):
         return obj.subject.name if obj.subject else "-"
 
     def get_class_name(self, obj):
-        # FIX: was returning "-." (with a stray period)
         return obj.school_class.name if obj.school_class else "-"
 
     def get_grade(self, obj):

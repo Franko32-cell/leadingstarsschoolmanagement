@@ -61,6 +61,14 @@ class Result(models.Model):
     exams  = models.FloatField(default=0, validators=[MinValueValidator(0), MaxValueValidator(40)])
     score  = models.FloatField(default=0, editable=False)
 
+    # Input marks behind reopen / ca / exams, so the entry modals can be
+    # re-filled when a saved result is opened again. Shape:
+    #   {"rk": {"reopen_raw": 8, "rda": 7},
+    #    "ca": {"hw1": 5, ..., "ct4": 18, "mgt_raw": 12},
+    #    "ex": {"exam_raw": 76}}
+    # Any part may be missing. Null for rows saved before this field existed.
+    breakdown = models.JSONField(null=True, blank=True, default=None)
+
     subject_position = models.IntegerField(null=True, blank=True, default=None)
     created_at       = models.DateTimeField(auto_now_add=True)
 
