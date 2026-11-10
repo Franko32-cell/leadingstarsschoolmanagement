@@ -16,6 +16,7 @@ const TERMS = [
 const CURRENT_TERM = "term1";
 const CURRENT_YEAR = 2026;
 const YEARS = [2026, 2025, 2024, 2023, 2022];
+const EMPTY_SUBJECTS = [];
 
 const GRADE_REMARK = {
   "1":  { label: "HIGHEST",       color: "#16a34a" },
@@ -1219,6 +1220,7 @@ const Results = () => {
   const [tab, setTab]               = useState("Enter Results");
   const [classes, setClasses]       = useState([]);
   const [subjects, setSubjects]     = useState([]);
+  const [subjectsClass, setSubjectsClass] = useState("");
   const [students, setStudents]     = useState([]);
   const [modal, setModal]           = useState(null);       // { type, studentId, studentName }
   const [expandedStudent, setExpandedStudent] = useState(null);
@@ -1230,6 +1232,7 @@ const Results = () => {
   const [selectedYear,    setSelectedYear]    = useState(String(CURRENT_YEAR));
   const [selectedSubject, setSelectedSubject] = useState("");
   const [classLevel,      setClassLevel]      = useState("basic_7_9");
+  const classSubjects = subjectsClass === selectedClass ? subjects : EMPTY_SUBJECTS;
 
   /*
    * Unified per-student state map:
@@ -1246,20 +1249,47 @@ const Results = () => {
   /* ── Loading / saving flags ── */
   const [saving,          setSaving]         = useState(false);
   const [loadingStudents, setLoadingStudents]= useState(false);
+  const [loadingSubjects, setLoadingSubjects]= useState(false);
   const [loadingScores,   setLoadingScores]  = useState(false);
   const [deleting,        setDeleting]       = useState(false);
   const [summary,         setSummary]        = useState([]);
   const [loadingSummary,  setLoadingSummary] = useState(false);
 
-  /* ── Load classes & subjects once ── */
+  /* ── Load classes once ── */
   useEffect(() => {
     API.get("/classes/")
       .then(r => setClasses(r.data.results || r.data))
       .catch(() => toast("Failed to load classes.", "error"));
-    API.get("/subjects/")
-      .then(r => setSubjects(r.data.results || r.data))
-      .catch(() => toast("Failed to load subjects.", "error"));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Fetch subjects for the selected class ── */
+  useEffect(() => {
+    let cancelled = false;
+    setSubjects([]);
+    setSubjectsClass("");
+
+    if (!selectedClass) {
+      setLoadingSubjects(false);
+      return () => { cancelled = true; };
+    }
+
+    setLoadingSubjects(true);
+    API.get("/subjects/", { params: { school_class: selectedClass } })
+      .then(r => {
+        if (!cancelled) {
+          setSubjects(r.data.results || r.data);
+          setSubjectsClass(selectedClass);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) toast("Failed to load subjects.", "error");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSubjects(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedClass]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Fetch students when class changes ── */
   useEffect(() => {
@@ -1362,7 +1392,7 @@ const Results = () => {
   useEffect(() => {
     if (!selectedClass || !selectedSubject || !selectedTerm || !students.length) return;
     loadExistingScores(students);
-  }, [students, selectedSubject, selectedTerm, selectedYear, loadExistingScores]);
+  }, [students, selectedClass, selectedSubject, selectedTerm, selectedYear, loadExistingScores]);
 
   /* ── Summary tab ── */
   useEffect(() => {
@@ -1545,12 +1575,12 @@ const Results = () => {
       savedCount,
       gradeScale:           classLevel === "basic_7_9" ? GRADE_SCALE_B79 : GRADE_SCALE_B16,
       selectedClassName:    classes.find(c  => String(c.id) === String(selectedClass))?.name   || "",
-      selectedSubjectName:  subjects.find(s => String(s.id) === String(selectedSubject))?.name || "",
+      selectedSubjectName:  classSubjects.find(s => String(s.id) === String(selectedSubject))?.name || "",
       selectedTermLabel:    TERMS.find(t => t.value === selectedTerm)?.label || "",
       isCurrentTermYear:    selectedTerm === CURRENT_TERM && selectedYear === String(CURRENT_YEAR),
       filtersSet:           !!(selectedClass && selectedSubject),
     };
-  }, [students, studentState, classLevel, classes, subjects, selectedClass, selectedSubject, selectedTerm, selectedYear]);
+  }, [students, studentState, classLevel, classes, classSubjects, selectedClass, selectedSubject, selectedTerm, selectedYear]);
 
   const saveProgress = students.length > 0 ? Math.round((savedCount / students.length) * 100) : 0;
 
@@ -1683,9 +1713,12 @@ const Results = () => {
             <div className="res-filter-group">
               <label htmlFor="filter-subject">Subject</label>
               <select id="filter-subject" className={`res-select ${selectedSubject ? "res-select-active" : ""}`}
-                value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)}>
-                <option value="">Select Subject</option>
-                {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)}
+                disabled={!selectedClass || loadingSubjects}>
+                <option value="">
+                  {!selectedClass ? "Select Class First" : loadingSubjects ? "Loading Subjects…" : "Select Subject"}
+                </option>
+                {classSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
           )}
