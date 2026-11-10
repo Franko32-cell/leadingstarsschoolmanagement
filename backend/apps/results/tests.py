@@ -124,6 +124,50 @@ class ResultsApiTests(TestCase):
         self.assertEqual(response.data["attendance"], 1)
         self.assertEqual(response.data["total_score"], 24.0)
 
+    def test_admin_can_download_cumulative_student_transcript(self):
+        self.user.role = "admin"
+        self.user.save(update_fields=["role"])
+        for term, year, score in (
+            ("term1", settings.CURRENT_YEAR - 1, 21),
+            ("term2", settings.CURRENT_YEAR, 27),
+        ):
+            Result.objects.create(
+                student=self.student,
+                subject=self.subject,
+                school_class=self.school_class,
+                term=term,
+                year=year,
+                reopen=score / 3,
+                ca=score / 3,
+                exams=score / 3,
+            )
+
+        response = self.client.get(
+            f"/api/students/{self.student.id}/transcript/pdf/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("transcript_", response["Content-Disposition"])
+        self.assertTrue(b"".join(response.streaming_content).startswith(b"%PDF"))
+
+    def test_non_admin_cannot_download_student_transcript(self):
+        response = self.client.get(
+            f"/api/students/{self.student.id}/transcript/pdf/"
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_transcript_without_results_returns_not_found(self):
+        self.user.role = "admin"
+        self.user.save(update_fields=["role"])
+
+        response = self.client.get(
+            f"/api/students/{self.student.id}/transcript/pdf/"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
     def test_report_endpoint_excludes_excused_days_from_rate(self):
         Result.objects.create(
             student=self.student,
