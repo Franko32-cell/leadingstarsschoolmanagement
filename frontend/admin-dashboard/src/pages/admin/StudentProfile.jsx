@@ -208,12 +208,40 @@ const FeesPayments = ({ studentId }) => {
   );
 };
 
-const Results = ({ studentId }) => {
+const Results = ({ studentId, admissionNumber }) => {
   const [term, setTerm] = useState("term1");
   const [year, setYear] = useState(String(YEARS[0]));
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [downloadingTranscript, setDownloadingTranscript] = useState(false);
+
+  const downloadTranscript = async () => {
+    setDownloadingTranscript(true);
+    setError("");
+    try {
+      const response = await API.get(
+        `/students/${studentId}/transcript/pdf/`,
+        { responseType: "blob" }
+      );
+      const url = window.URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `transcript_${admissionNumber || studentId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(
+        err.response?.status === 404
+          ? "No academic results found for this student."
+          : "Failed to download the transcript."
+      );
+    } finally {
+      setDownloadingTranscript(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -261,6 +289,15 @@ const Results = ({ studentId }) => {
           ))}
         </select>
       </div>
+
+      <button
+        type="button"
+        onClick={downloadTranscript}
+        disabled={downloadingTranscript}
+        className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {downloadingTranscript ? "Preparing transcript…" : "Download transcript"}
+      </button>
 
       {loading && <div className="text-center py-12 text-slate-400 text-sm">Loading results…</div>}
       {!loading && error && <div className="text-center py-12 text-slate-400 text-sm">{error}</div>}
@@ -346,7 +383,9 @@ const StudentProfile = ({ student }) => {
 
       {tab === "Overview" && <Overview student={student} />}
       {tab === "Fees & Payments" && <FeesPayments studentId={student.id} />}
-      {tab === "Results" && <Results studentId={student.id} />}
+      {tab === "Results" && (
+        <Results studentId={student.id} admissionNumber={student.admission_number} />
+      )}
     </div>
   );
 };

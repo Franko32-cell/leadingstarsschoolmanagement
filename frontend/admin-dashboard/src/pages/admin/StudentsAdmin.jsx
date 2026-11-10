@@ -1,6 +1,7 @@
 import React, { useCallback } from "react";
 import PersonAdminTable from "../../components/common/PersonAdminTable";
 import StudentProfile from "./StudentProfile";
+import API from "../../services/api";
 import {
   getStudentsAdmin,
   activateStudent,
@@ -12,6 +13,52 @@ import {
   resetStudentPassword,
   unlockStudentLogin,
 } from "../../services/StudentAdminService";
+
+const TranscriptDownloadButton = ({ student }) => {
+  const [downloading, setDownloading] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  const downloadTranscript = async () => {
+    setDownloading(true);
+    setError("");
+    try {
+      const response = await API.get(
+        `/students/${student.id}/transcript/pdf/`,
+        { responseType: "blob" }
+      );
+      const url = window.URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `transcript_${student.admission_number || student.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      setError(
+        err.response?.status === 404
+          ? "No results"
+          : "Download failed"
+      );
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={downloadTranscript}
+        disabled={downloading}
+        className="whitespace-nowrap rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {downloading ? "Preparing…" : "Transcript"}
+      </button>
+      {error && <p className="mt-1 text-[10px] text-red-600">{error}</p>}
+    </div>
+  );
+};
 // ─── Types ──────────────────────────────────────────────────────────
 // NOTE: This file is plain JSX, so type annotations are omitted here.
 // ─── Static config (stable references) ──────────────────────────────
@@ -42,6 +89,11 @@ const STUDENT_EXTRA_COLUMNS = [
     key: "parent",
     label: "Parent / Guardian",
     render: (s) => s.parent_name || "—",
+  },
+  {
+    key: "transcript",
+    label: "Transcript",
+    render: (student) => <TranscriptDownloadButton student={student} />,
   },
 ];
 // ─── Component ──────────────────────────────────────────────────────
