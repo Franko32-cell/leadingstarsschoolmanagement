@@ -109,3 +109,52 @@ class AccountStatusServiceTests(TestCase):
         self.assertEqual(audit.user, self.admin_user)
         self.assertEqual(audit.resource_type, "User")
         self.assertEqual(audit.resource_repr, f"User: {self.target_user.username}")
+
+
+class AdminApprovalSuspensionTests(APITestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        self.admin_user = self.user_model.objects.create_user(
+            username="approval-admin",
+            password="test-password",
+            role="admin",
+            is_active=True,
+            is_approved=True,
+        )
+        self.suspended_admin = self.user_model.objects.create_user(
+            username="suspended-admin",
+            password="test-password",
+            role="admin",
+            is_active=False,
+            is_approved=True,
+            account_status="suspended",
+        )
+        self.client.force_authenticate(user=self.admin_user)
+
+    def test_suspended_admins_endpoint_returns_suspended_accounts(self):
+        response = self.client.get("/api/admin-approvals/suspended/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [admin["id"] for admin in response.data],
+            [self.suspended_admin.id],
+        )
+        self.assertEqual(response.data[0]["account_status"], "suspended")
+
+    def test_unsuspend_restores_login_and_creates_audit_log(self):
+        response = self.client.post(
+            f"/api/admin-approvals/{self.suspended_admin.id}/unsuspend/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.suspended_admin.refresh_from_db()
+        self.assertEqual(self.suspended_admin.account_status, "active")
+        self.assertTrue(self.suspended_admin.is_active)
+        self.assertTrue(self.suspended_admin.is_approved)
+        audit = AuditLog.objects.get(
+            action=AuditLog.Action.USER_ACTIVATED,
+            resource_id=self.suspended_admin.id,
+        )
+        self.assertEqual(audit.user, self.admin_user)
+        self.assertEqual(audit.previous_value, {"account_status": "suspended"})
+        self.assertEqual(audit.new_value, {"account_status": "active"})

@@ -22,6 +22,7 @@ from apps.teachers.models import Teacher
 # at the exact points that matter instead.
 from apps.audit.models import AuditLog
 from apps.audit.services import log_action
+from apps.accounts.services import set_account_status
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -407,6 +408,7 @@ class AdminApprovalViewSet(viewsets.ViewSet):
             "email":       user.email,
             "is_approved": user.is_approved,
             "is_active":   user.is_active,
+            "account_status": user.account_status,
             "date_joined": user.date_joined.isoformat(),
         }
 
@@ -417,6 +419,14 @@ class AdminApprovalViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["get"], url_path="all")
     def all_admins(self, request):
         admins = User.objects.filter(role="admin").exclude(id=request.user.id).order_by("-date_joined")
+        return Response([self._serialize_user(u) for u in admins])
+
+    @action(detail=False, methods=["get"], url_path="suspended")
+    def suspended_admins(self, request):
+        admins = User.objects.filter(
+            role="admin",
+            account_status="suspended",
+        ).exclude(id=request.user.id).order_by("-date_joined")
         return Response([self._serialize_user(u) for u in admins])
 
     @action(detail=True, methods=["post"], url_path="approve")
@@ -448,6 +458,32 @@ class AdminApprovalViewSet(viewsets.ViewSet):
         return Response({
             "message": f"{user.username} has been approved and can now log in.",
             "user":    self._serialize_user(user),
+        })
+
+    @action(detail=True, methods=["post"], url_path="unsuspend")
+    def unsuspend(self, request, pk=None):
+        try:
+            user = User.objects.get(pk=pk, role="admin")
+        except User.DoesNotExist:
+            return Response({"error": "Admin not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if user == request.user:
+            return Response({"error": "You cannot unsuspend yourself."}, status=status.HTTP_400_BAD_REQUEST)
+        if user.account_status != "suspended":
+            return Response({"error": "Admin account is not suspended."}, status=status.HTTP_400_BAD_REQUEST)
+
+        set_account_status(
+            user,
+            "active",
+            request=request,
+            module=AuditLog.Module.ACCOUNTS,
+            resource_type="User",
+            resource_label=user.username,
+        )
+
+        return Response({
+            "message": f"{user.username} has been unsuspended and can now log in.",
+            "user": self._serialize_user(user),
         })
 
     @action(detail=True, methods=["post"], url_path="reject")

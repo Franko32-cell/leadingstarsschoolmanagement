@@ -23,7 +23,8 @@ const Toast = ({ message, type, onDismiss }) => {
 const AdminApprovals = () => {
   const [pending, setPending]     = useState([]);
   const [allAdmins, setAllAdmins] = useState([]);
-  const [tab, setTab]             = useState("pending"); // "pending" | "all"
+  const [suspended, setSuspended] = useState([]);
+  const [tab, setTab]             = useState("pending");
   const [loading, setLoading]     = useState(true);
   const [acting, setActing]       = useState(null); // id being approved/rejected
   const [error, setError]         = useState("");
@@ -33,12 +34,14 @@ const AdminApprovals = () => {
     setLoading(true);
     setError("");
     try {
-      const [pendingRes, allRes] = await Promise.all([
+      const [pendingRes, allRes, suspendedRes] = await Promise.all([
         API.get("/admin-approvals/"),
         API.get("/admin-approvals/all/"),
+        API.get("/admin-approvals/suspended/"),
       ]);
       setPending(pendingRes.data);
       setAllAdmins(allRes.data);
+      setSuspended(suspendedRes.data);
     } catch {
       setError("Failed to load admin accounts.");
     } finally {
@@ -76,7 +79,25 @@ const AdminApprovals = () => {
     }
   };
 
-  const displayed = tab === "pending" ? pending : allAdmins;
+  const unsuspend = async (id, username) => {
+    if (!window.confirm(`Unsuspend ${username}? They will be able to log in immediately.`)) return;
+    setActing(id); setError(""); setSuccess("");
+    try {
+      const res = await API.post(`/admin-approvals/${id}/unsuspend/`);
+      setSuccess(res.data.message);
+      load();
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to unsuspend.");
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const displayed = tab === "pending"
+    ? pending
+    : tab === "suspended"
+      ? suspended
+      : allAdmins;
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -102,8 +123,9 @@ const AdminApprovals = () => {
       {/* Tabs */}
       <div className="flex border-b border-gray-200 mb-5 gap-1">
         {[
-          { key: "pending", label: "Pending",   count: pending.length  },
-          { key: "all",     label: "All Admins", count: allAdmins.length },
+          { key: "pending", label: "Pending", count: pending.length },
+          { key: "all", label: "All Admins", count: allAdmins.length },
+          { key: "suspended", label: "Suspended", count: suspended.length },
         ].map(({ key, label, count }) => (
           <button
             key={key}
@@ -132,11 +154,15 @@ const AdminApprovals = () => {
         </div>
       ) : displayed.length === 0 ? (
         <div className="text-center py-14 text-gray-400 bg-white rounded-2xl border border-gray-100 shadow-sm">
-          <p className="text-3xl mb-2">{tab === "pending" ? "✅" : "👤"}</p>
+          <p className="text-3xl mb-2">
+            {tab === "pending" ? "✅" : tab === "suspended" ? "🔒" : "👤"}
+          </p>
           <p className="text-sm">
             {tab === "pending"
               ? "No pending approvals. All admin accounts are up to date."
-              : "No other admin accounts found."}
+              : tab === "suspended"
+                ? "No suspended admin accounts."
+                : "No other admin accounts found."}
           </p>
         </div>
       ) : (
@@ -149,7 +175,7 @@ const AdminApprovals = () => {
                   <th className="px-5 py-3 text-left font-medium">Email</th>
                   <th className="px-5 py-3 text-left font-medium">Registered</th>
                   <th className="px-5 py-3 text-left font-medium">Status</th>
-                  {tab === "pending" && (
+                  {tab !== "all" && (
                     <th className="px-5 py-3 text-left font-medium">Actions</th>
                   )}
                 </tr>
@@ -181,7 +207,12 @@ const AdminApprovals = () => {
 
                     {/* Status pill */}
                     <td className="px-5 py-4">
-                      {admin.is_approved ? (
+                      {admin.account_status === "suspended" ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 ring-1 ring-red-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                          Suspended
+                        </span>
+                      ) : admin.is_approved ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-700 ring-1 ring-green-200">
                           <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                           Approved
@@ -194,24 +225,36 @@ const AdminApprovals = () => {
                       )}
                     </td>
 
-                    {/* Actions (pending tab only) */}
-                    {tab === "pending" && (
+                    {/* Actions */}
+                    {tab !== "all" && (
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => approve(admin.id, admin.username)}
-                            disabled={acting === admin.id}
-                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 transition-colors"
-                          >
-                            {acting === admin.id ? "…" : "Approve"}
-                          </button>
-                          <button
-                            onClick={() => reject(admin.id, admin.username)}
-                            disabled={acting === admin.id}
-                            className="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-red-100 hover:border-red-600 disabled:opacity-50 transition-colors"
-                          >
-                            {acting === admin.id ? "…" : "Reject"}
-                          </button>
+                          {tab === "pending" ? (
+                            <>
+                              <button
+                                onClick={() => approve(admin.id, admin.username)}
+                                disabled={acting === admin.id}
+                                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 transition-colors"
+                              >
+                                {acting === admin.id ? "…" : "Approve"}
+                              </button>
+                              <button
+                                onClick={() => reject(admin.id, admin.username)}
+                                disabled={acting === admin.id}
+                                className="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-red-100 hover:border-red-600 disabled:opacity-50 transition-colors"
+                              >
+                                {acting === admin.id ? "…" : "Reject"}
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => unsuspend(admin.id, admin.username)}
+                              disabled={acting === admin.id}
+                              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 transition-colors"
+                            >
+                              {acting === admin.id ? "…" : "Unsuspend"}
+                            </button>
+                          )}
                         </div>
                       </td>
                     )}
